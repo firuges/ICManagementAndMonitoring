@@ -155,10 +155,10 @@ class PersistenceManager:
     
     def list_all_requests(self) -> List[Dict[str, Any]]:
         """
-        Lista todos los SOAP requests disponibles con validación mejorada.
+        Lista todos los servicios SOAP/REST disponibles con validación mejorada.
         
         Returns:
-            List[Dict[str, Any]]: Lista de requests
+            List[Dict[str, Any]]: Lista de servicios
         """
         requests = []
         
@@ -166,7 +166,7 @@ class PersistenceManager:
             logger.warning(f"Directorio de requests no encontrado: {self.requests_path}")
             return requests
         
-        logger.info(f"Buscando requests en {self.requests_path}")
+        logger.info(f"Buscando servicios en {self.requests_path}")
         
         # Contar archivos para diagnóstico
         all_files = os.listdir(self.requests_path)
@@ -179,31 +179,50 @@ class PersistenceManager:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     request_data = json.load(f)
                     
-                # Validar datos mínimos
-                if 'name' not in request_data or not request_data['name']:
-                    logger.warning(f"Archivo {filename} sin nombre válido, agregando nombre desde archivo")
-                    # Extraer nombre del archivo como fallback
-                    base_name = os.path.splitext(filename)[0]
-                    request_data['name'] = base_name.replace('_', ' ').title()
-                
-                # Asegurar campos mínimos
-                for field in ['description', 'wsdl_url', 'request_xml']:
-                    if field not in request_data:
-                        request_data[field] = ""
-                        
-                if 'status' not in request_data:
-                    request_data['status'] = 'sin verificar'
-                        
-                # Añadir a la lista
-                requests.append(request_data)
-                logger.debug(f"Request cargado: {request_data['name']}")
+                    # Validar datos mínimos
+                    if 'name' not in request_data or not request_data['name']:
+                        logger.warning(f"Archivo {filename} sin nombre válido, agregando nombre desde archivo")
+                        # Extraer nombre del archivo como fallback
+                        base_name = os.path.splitext(filename)[0]
+                        request_data['name'] = base_name.replace('_', ' ').title()
+                    
+                    # Asegurar que tenga un tipo
+                    if 'type' not in request_data:
+                        logger.debug(f"Servicio {request_data['name']} sin tipo definido, asignando SOAP por defecto")
+                        request_data['type'] = 'SOAP'  # Por compatibilidad con datos antiguos
+                    
+                    # Asegurar campos mínimos según el tipo
+                    if request_data['type'] == 'SOAP':
+                        # Campos específicos de SOAP
+                        for field in ['description', 'wsdl_url', 'request_xml']:
+                            if field not in request_data:
+                                request_data[field] = ""
+                    else:  # REST
+                        # Campos específicos de REST
+                        if 'description' not in request_data:
+                            request_data['description'] = ""
+                        if 'url' not in request_data:
+                            request_data['url'] = ""
+                        if 'method' not in request_data:
+                            request_data['method'] = "GET"
+                        if 'headers' not in request_data:
+                            request_data['headers'] = {}
+                        if 'params' not in request_data:
+                            request_data['params'] = {}
+                    
+                    if 'status' not in request_data:
+                        request_data['status'] = 'sin verificar'
+                    
+                    # Añadir a la lista
+                    requests.append(request_data)
+                    logger.debug(f"Servicio cargado: {request_data['name']} (Tipo: {request_data['type']})")
             except json.JSONDecodeError:
                 logger.error(f"Error de formato JSON en {file_path}")
             except Exception as e:
                 logger.error(f"Error al cargar {filename}: {str(e)}")
         
         # Verificación final
-        logger.info(f"Requests encontrados: {len(requests)}")
+        logger.info(f"Servicios encontrados: {len(requests)}")
         return requests
     
     # En persistence.py, localizar el método update_request_status

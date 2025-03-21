@@ -9,8 +9,8 @@
   "add_to_system": false,
   "status": "ok",
   "created_at": "2025-03-21T09:45:56.854085",
-  "updated_at": "2025-03-21T12:29:19.269380",
-  "last_checked": "2025-03-21T12:29:19.269380",
+  "updated_at": "2025-03-21T13:22:47.805670",
+  "last_checked": "2025-03-21T13:22:47.805670",
   "last_response": {
     "response": {
       "cabeceraSalida": {
@@ -91,38 +91,6 @@
             "estadoProducto": "INACTIVO",
             "moneda": "COP",
             "puedeTransaccionar": false
-          },
-          {
-            "identificadorProductoBanco": "05",
-            "numeroProducto": "4704371026149241",
-            "tipoProducto": "3",
-            "estadoProducto": "ACTIVO",
-            "moneda": "COP",
-            "puedeTransaccionar": true
-          },
-          {
-            "identificadorProductoBanco": "05",
-            "numeroProducto": "4704371032794873",
-            "tipoProducto": "3",
-            "estadoProducto": "ACTIVO",
-            "moneda": "COP",
-            "puedeTransaccionar": true
-          },
-          {
-            "identificadorProductoBanco": "05",
-            "numeroProducto": "4704371036790117",
-            "tipoProducto": "3",
-            "estadoProducto": "ACTIVO",
-            "moneda": "COP",
-            "puedeTransaccionar": true
-          },
-          {
-            "identificadorProductoBanco": "05",
-            "numeroProducto": "4704371049531128",
-            "tipoProducto": "3",
-            "estadoProducto": "ACTIVO",
-            "moneda": "COP",
-            "puedeTransaccionar": true
           },
           {
             "identificadorProductoBanco": "17",

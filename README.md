@@ -402,3 +402,143 @@ Rutas alternativas de validación - Para servicios con estructuras variables
 Interfaz intuitiva - Plantillas predefinidas para facilitar la configuración
 
 Esta arquitectura no solo resuelve los escenarios planteados, sino que proporciona un marco extensible para manejar prácticamente cualquier tipo de respuesta SOAP que puedas encontrar en entornos empresariales complejos.
+
+
+Aquí tienes varias opciones de JSON para las validaciones, con diferentes configuraciones según distintos escenarios:
+1. Configuración básica de éxito/error
+jsonCopiar{
+  "success_field": "codMensaje",
+  "success_values": ["00000"],
+  "validation_strategy": "flexible"
+}
+2. Configuración con manejo de advertencias
+jsonCopiar{
+  "success_field": "codMensaje",
+  "success_values": ["00000"],
+  "warning_values": ["2001", "2002", "2003"],
+  "validation_strategy": "flexible"
+}
+3. Configuración completa con éxito/advertencia/fallo
+jsonCopiar{
+  "success_field": "codMensaje",
+  "success_values": ["00000", "00001"],
+  "warning_values": ["2001", "2002", "2003"],
+  "failed_values": ["5000", "5001", "9999"],
+  "validation_strategy": "flexible"
+}
+4. Validación estricta con campos esperados
+jsonCopiar{
+  "success_field": "codMensaje",
+  "success_values": ["00000"],
+  "expected_fields": {
+    "fechaProximoCorte": null,
+    "mensajeUsuario": null
+  },
+  "validation_strategy": "strict"
+}
+5. Validación con campos esperados y valores específicos
+jsonCopiar{
+  "success_field": "codMensaje",
+  "success_values": ["00000"],
+  "expected_fields": {
+    "estado": "ACTIVO",
+    "tipoCliente": "PREFERENCIAL"
+  },
+  "validation_strategy": "flexible"
+}
+6. Validación de respuestas con estructura XML compleja
+jsonCopiar{
+  "success_field": "Envelope.Body.cabeceraSalida.codMensaje",
+  "success_values": ["00000"],
+  "warning_values": ["2001"],
+  "validation_strategy": "flexible"
+}
+7. Validación para servicios con múltiples rutas de respuesta posibles
+jsonCopiar{
+  "success_field": "codMensaje",
+  "success_values": ["00000"],
+  "alternative_paths": [
+    {
+      "field": "cabecera.estado",
+      "success_values": ["OK", "CORRECTO"]
+    },
+    {
+      "field": "response.status",
+      "success_values": ["200", "OK"]
+    }
+  ],
+  "validation_strategy": "flexible"
+}
+8. Validación para servicios con errores específicos de negocio
+jsonCopiar{
+  "success_field": "codMensaje",
+  "success_values": ["00000"],
+  "warning_values": ["2001", "2002"],
+  "failed_values": ["4001", "4002", "4003", "4004"],
+  "expected_fields": {
+    "mensajeUsuario": null,
+    "codigoOperacion": null
+  }
+}
+9. Validación permisiva para servicios poco fiables
+jsonCopiar{
+  "validation_strategy": "permissive",
+  "treat_empty_as_success": true,
+  "success_field": "codMensaje",
+  "success_values": ["00000", "00001", "00002"]
+}
+10. Validación para servicios que retornan listas
+jsonCopiar{
+  "success_field": "cabecera.codMensaje",
+  "success_values": ["00000"],
+  "expected_fields": {
+    "lista.elementos": null,
+    "lista.totalRegistros": null
+  }
+}
+11. Validación para respuestas con namespace
+jsonCopiar{
+  "success_field": "v1.:codMensaje",
+  "success_values": ["00000"],
+  "warning_values": ["2001", "2002"],
+  "validation_strategy": "flexible"
+}
+12. Validación con enfoque en texto del mensaje de usuario
+jsonCopiar{
+  "success_field": "codMensaje",
+  "success_values": ["00000"],
+  "expected_fields": {
+    "mensajeUsuario": "Operación realizada correctamente"
+  },
+  "validation_strategy": "flexible"
+}
+13. Validación de servicios de consulta
+jsonCopiar{
+  "success_field": "codMensaje",
+  "success_values": ["00000"],
+  "warning_values": ["2001"],
+  "failed_values": ["3001", "3002"],
+  "expected_fields": {
+    "resultadoConsulta": null,
+    "fechaConsulta": null
+  }
+}
+14. Validación específica para servicio ValidarOtp
+jsonCopiar{
+  "success_field": "codMensaje",
+  "success_values": ["00000"],
+  "warning_values": ["2001"],
+  "failed_values": ["5001", "5002", "5003", "5004"],
+  "expected_fields": {
+    "mensajeUsuario": null
+  },
+  "validation_strategy": "flexible"
+}
+15. Validación con manejo de texto en XML
+jsonCopiar{
+  "success_field": "codMensaje.#text",
+  "success_values": ["00000"],
+  "warning_values": ["2001"],
+  "validation_strategy": "flexible"
+}
+Estos ejemplos cubren una amplia variedad de escenarios y te permitirán adaptar las validaciones a las necesidades específicas de cada servicio. Puedes ajustar los valores según los códigos reales que utilicen tus servicios SOAP.

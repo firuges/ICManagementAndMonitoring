@@ -8,7 +8,8 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit, 
     QTextEdit, QPushButton, QComboBox, QSpinBox, QCheckBox, QGroupBox,
     QMessageBox, QSplitter, QListWidget, QListWidgetItem, QTabWidget,
-    QFileDialog, QDialog, QApplication
+    QTableWidgetItem, QHeaderView,QFileDialog, QDialog, QApplication,
+    QStackedWidget, QTableWidget
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QRegExp
 from PyQt5.QtGui import QRegExpValidator, QFont
@@ -64,7 +65,7 @@ class RequestForm(QWidget):
         # Lista de requests
         self.requests_list = QListWidget()
         self.requests_list.currentItemChanged.connect(self._on_request_selected)
-        left_layout.addWidget(QLabel("Requests SOAP:"))
+        left_layout.addWidget(QLabel("Servicios:"))  # Cambiado de "Requests SOAP" a "Servicios"
         left_layout.addWidget(self.requests_list)
         
         # Botones de acción de lista
@@ -93,17 +94,31 @@ class RequestForm(QWidget):
         # Descripción
         self.description_input = QTextEdit()
         self.description_input.setMaximumHeight(100)
-        self.description_input.setPlaceholderText("Descripción del propósito del servicio SOAP")
+        self.description_input.setPlaceholderText("Descripción del propósito del servicio")
         form_layout.addRow("Descripción:", self.description_input)
         
-        # URL del WSDL
+        # Tipo de servicio (SOAP/REST)
+        self.service_type = QComboBox()
+        self.service_type.addItems(["SOAP", "REST"])
+        self.service_type.currentIndexChanged.connect(self._on_service_type_changed)
+        form_layout.addRow("Tipo de servicio:", self.service_type)
+        
+        # Contenedor para campos específicos de cada tipo
+        self.type_specific_container = QStackedWidget()
+        
+        # ---------- CONTENEDOR PARA SOAP ----------
+        self.soap_widget = QWidget()
+        soap_layout = QVBoxLayout()
+        self.soap_widget.setLayout(soap_layout)
+        
+        # URL del WSDL (solo para SOAP)
         self.wsdl_url_input = QLineEdit()
         self.wsdl_url_input.setPlaceholderText("URL del WSDL del servicio (ej: http://ejemplo.com/servicio?wsdl)")
-        form_layout.addRow("URL WSDL:", self.wsdl_url_input)
+        soap_layout.addWidget(QLabel("URL WSDL:"))
+        soap_layout.addWidget(self.wsdl_url_input)
         
-        # Crear tabs para XML y validación
-        tabs = QTabWidget()
-        form_layout.addRow(tabs)
+        # Crear tabs para XML y validación SOAP
+        soap_tabs = QTabWidget()
         
         # Tab para Request XML
         xml_tab = QWidget()
@@ -134,7 +149,90 @@ class RequestForm(QWidget):
         
         xml_layout.addLayout(xml_buttons_layout)
         
-        # Tab para patrones de validación
+        # Agregar tab de XML
+        soap_tabs.addTab(xml_tab, "Request XML")
+        
+        # Añadir tabs a layout de SOAP
+        soap_layout.addWidget(soap_tabs)
+        
+        # ---------- CONTENEDOR PARA REST ----------
+        self.rest_widget = QWidget()
+        rest_layout = QVBoxLayout()
+        self.rest_widget.setLayout(rest_layout)
+        
+        # URL Base (para REST)
+        self.rest_url_input = QLineEdit()
+        self.rest_url_input.setPlaceholderText("URL del endpoint (ej: https://api.ejemplo.com/v1/recurso)")
+        rest_layout.addWidget(QLabel("URL:"))
+        rest_layout.addWidget(self.rest_url_input)
+        
+        # Método HTTP
+        self.rest_method = QComboBox()
+        self.rest_method.addItems(["GET", "POST", "PUT", "DELETE", "PATCH"])
+        rest_layout.addWidget(QLabel("Método HTTP:"))
+        rest_layout.addWidget(self.rest_method)
+        
+        # Headers
+        rest_layout.addWidget(QLabel("Headers:"))
+        self.headers_table = QTableWidget(0, 2)
+        self.headers_table.setHorizontalHeaderLabels(["Nombre", "Valor"])
+        self.headers_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.headers_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        rest_layout.addWidget(self.headers_table)
+        
+        # Botones para headers
+        headers_buttons = QHBoxLayout()
+        self.btn_add_header = QPushButton("Añadir Header")
+        self.btn_add_header.clicked.connect(self._add_header_row)
+        headers_buttons.addWidget(self.btn_add_header)
+        
+        self.btn_remove_header = QPushButton("Eliminar Header")
+        self.btn_remove_header.clicked.connect(self._remove_header_row)
+        headers_buttons.addWidget(self.btn_remove_header)
+        rest_layout.addLayout(headers_buttons)
+        
+        # Query Parameters
+        rest_layout.addWidget(QLabel("Query Parameters:"))
+        self.params_table = QTableWidget(0, 2)
+        self.params_table.setHorizontalHeaderLabels(["Nombre", "Valor"])
+        self.params_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.params_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        rest_layout.addWidget(self.params_table)
+        
+        # Botones para params
+        params_buttons = QHBoxLayout()
+        self.btn_add_param = QPushButton("Añadir Parámetro")
+        self.btn_add_param.clicked.connect(self._add_param_row)
+        params_buttons.addWidget(self.btn_add_param)
+        
+        self.btn_remove_param = QPushButton("Eliminar Parámetro")
+        self.btn_remove_param.clicked.connect(self._remove_param_row)
+        params_buttons.addWidget(self.btn_remove_param)
+        rest_layout.addLayout(params_buttons)
+        
+        # Body JSON (para POST/PUT)
+        rest_layout.addWidget(QLabel("Body JSON:"))
+        self.json_body_input = QTextEdit()
+        self.json_body_input.setPlaceholderText('{\n  "key": "value"\n}')
+        self.json_body_input.setFont(font)
+        rest_layout.addWidget(self.json_body_input)
+        
+        # Botón para formatear JSON
+        self.btn_format_json = QPushButton("Formatear JSON")
+        self.btn_format_json.clicked.connect(self._format_json)
+        rest_layout.addWidget(self.btn_format_json)
+        
+        # Botón para probar REST
+        self.btn_test_rest = QPushButton("Probar REST")
+        self.btn_test_rest.clicked.connect(self._test_rest_request)
+        rest_layout.addWidget(self.btn_test_rest)
+        
+        # Añadir widgets al contenedor específico de tipo
+        self.type_specific_container.addWidget(self.soap_widget)
+        self.type_specific_container.addWidget(self.rest_widget)
+        form_layout.addRow(self.type_specific_container)
+        
+        # Tab para patrones de validación (común para ambos tipos)
         validation_tab = QWidget()
         validation_layout = QVBoxLayout()
         validation_tab.setLayout(validation_layout)
@@ -154,9 +252,10 @@ class RequestForm(QWidget):
             "- Si se especifica un valor, se valida que coincida exactamente."
         ))
         
-        # Agregar tabs al formulario
-        tabs.addTab(xml_tab, "Request XML")
+        # Crear tabs comunes para validación
+        tabs = QTabWidget()
         tabs.addTab(validation_tab, "Validación")
+        form_layout.addRow(tabs)
         
         # Opciones de monitoreo
         monitoring_group = QGroupBox("Opciones de Monitoreo")
@@ -202,6 +301,255 @@ class RequestForm(QWidget):
         splitter.setSizes([200, 700])  # Tamaños iniciales
         
         main_layout.addWidget(splitter)
+    
+    def _on_service_type_changed(self, index):
+        """Actualiza la visibilidad de campos según el tipo de servicio seleccionado"""
+        self.type_specific_container.setCurrentIndex(index)
+
+    def _add_header_row(self):
+        """Añade una fila a la tabla de headers"""
+        row = self.headers_table.rowCount()
+        self.headers_table.insertRow(row)
+        self.headers_table.setItem(row, 0, QTableWidgetItem(""))
+        self.headers_table.setItem(row, 1, QTableWidgetItem(""))
+
+    def _remove_header_row(self):
+        """Elimina la fila seleccionada de la tabla de headers"""
+        selected_rows = self.headers_table.selectionModel().selectedRows()
+        if not selected_rows:
+            return
+            
+        for index in sorted(selected_rows, reverse=True):
+            self.headers_table.removeRow(index.row())
+
+    def _add_param_row(self):
+        """Añade una fila a la tabla de parámetros"""
+        row = self.params_table.rowCount()
+        self.params_table.insertRow(row)
+        self.params_table.setItem(row, 0, QTableWidgetItem(""))
+        self.params_table.setItem(row, 1, QTableWidgetItem(""))
+
+    def _remove_param_row(self):
+        """Elimina la fila seleccionada de la tabla de parámetros"""
+        selected_rows = self.params_table.selectionModel().selectedRows()
+        if not selected_rows:
+            return
+            
+        for index in sorted(selected_rows, reverse=True):
+            self.params_table.removeRow(index.row())
+
+    def _format_json(self):
+        """Formatea el JSON para mejor legibilidad"""
+        json_text = self.json_body_input.toPlainText()
+        
+        if not json_text.strip():
+            return
+        
+        try:
+            parsed_json = json.loads(json_text)
+            formatted_json = json.dumps(parsed_json, indent=2)
+            self.json_body_input.setText(formatted_json)
+            logger.info("JSON formateado correctamente")
+            
+        except Exception as e:
+            logger.error(f"Error al formatear JSON: {str(e)}")
+            QMessageBox.warning(self, "Error", f"Error al formatear JSON: {str(e)}")
+
+    # Modificar el método _save_request para manejar tanto SOAP como REST
+    def _save_request(self):
+        """Guarda el request actual"""
+        # Obtener datos del formulario
+        name = self.name_input.text().strip()
+        description = self.description_input.toPlainText().strip()
+        service_type = self.service_type.currentText()  # "SOAP" o "REST"
+        
+        # Validar datos mínimos
+        if not name:
+            QMessageBox.warning(self, "Información", "Ingrese un nombre para el request")
+            return
+        
+        try:
+            # Procesar patrones de validación
+            validation_pattern = self.validation_pattern_input.toPlainText().strip()
+            validation_data = {}
+            
+            if validation_pattern:
+                try:
+                    validation_data = json.loads(validation_pattern)
+                except:
+                    # Si no es JSON válido, guardar como texto
+                    validation_data = validation_pattern
+            
+            # Crear datos básicos del request
+            request_data = {
+                'name': name,
+                'description': description,
+                'type': service_type,
+                'validation_pattern': validation_data,
+                'monitor_interval': self.monitor_interval.value(),
+                'monitor_enabled': self.monitor_enabled.isChecked(),
+                'add_to_system': self.add_to_system.isChecked(),
+                'status': 'active'  # Estado inicial
+            }
+            
+            # Datos específicos según tipo de servicio
+            if service_type == "SOAP":
+                wsdl_url = self.wsdl_url_input.text().strip()
+                request_xml = self.request_xml_input.toPlainText().strip()
+                
+                if not wsdl_url:
+                    QMessageBox.warning(self, "Información", "Especifique la URL del WSDL")
+                    return
+                
+                if not request_xml:
+                    QMessageBox.warning(self, "Información", "Ingrese el XML del request")
+                    return
+                    
+                # Añadir datos específicos de SOAP
+                request_data.update({
+                    'wsdl_url': wsdl_url,
+                    'request_xml': request_xml
+                })
+            else:  # REST
+                rest_url = self.rest_url_input.text().strip()
+                rest_method = self.rest_method.currentText()
+                
+                if not rest_url:
+                    QMessageBox.warning(self, "Información", "Especifique la URL del endpoint REST")
+                    return
+                    
+                # Recopilar headers
+                headers = {}
+                for row in range(self.headers_table.rowCount()):
+                    key = self.headers_table.item(row, 0).text().strip()
+                    value = self.headers_table.item(row, 1).text().strip()
+                    if key:
+                        headers[key] = value
+                
+                # Recopilar query params
+                params = {}
+                for row in range(self.params_table.rowCount()):
+                    key = self.params_table.item(row, 0).text().strip()
+                    value = self.params_table.item(row, 1).text().strip()
+                    if key:
+                        params[key] = value
+                
+                # Procesar JSON body
+                json_body = self.json_body_input.toPlainText().strip()
+                json_data = None
+                if json_body:
+                    try:
+                        json_data = json.loads(json_body)
+                    except json.JSONDecodeError as e:
+                        QMessageBox.warning(self, "Error", f"El JSON del body no es válido: {str(e)}")
+                        return
+                
+                # Añadir datos específicos de REST
+                request_data.update({
+                    'url': rest_url,
+                    'method': rest_method,
+                    'headers': headers,
+                    'params': params,
+                    'json_data': json_data
+                })
+            
+            # Guardar request
+            self.persistence.save_soap_request(request_data)
+            
+            # Emitir señal y actualizar lista
+            self.request_saved.emit(name)
+            self._load_requests_list()
+            
+            # Seleccionar el request guardado
+            for i in range(self.requests_list.count()):
+                item = self.requests_list.item(i)
+                if item.text() == name:
+                    self.requests_list.setCurrentItem(item)
+                    break
+            
+            QMessageBox.information(self, "Información", f"Request '{name}' guardado correctamente")
+            logger.info(f"Request guardado: {name}")
+            
+        except Exception as e:
+            logger.error(f"Error al guardar request: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error al guardar request: {str(e)}")
+    
+    def _on_request_selected(self, current, previous):
+        """Manejador para selección de request en la lista"""
+        if current is None:
+            return
+        
+        # Obtener datos del request seleccionado
+        request_data = current.data(Qt.UserRole)
+        self.current_request = request_data
+        
+        # Cargar datos comunes
+        self.name_input.setText(request_data.get('name', ''))
+        self.description_input.setText(request_data.get('description', ''))
+        
+        # Determinar tipo y seleccionar
+        service_type = request_data.get('type', 'SOAP')  # Por defecto SOAP para compatibilidad
+        type_index = 0 if service_type == 'SOAP' else 1
+        self.service_type.setCurrentIndex(type_index)
+        
+        # Cargar datos específicos según tipo
+        if service_type == 'SOAP':
+            self.wsdl_url_input.setText(request_data.get('wsdl_url', ''))
+            self.request_xml_input.setText(request_data.get('request_xml', ''))
+        else:  # REST
+            self.rest_url_input.setText(request_data.get('url', ''))
+            
+            # Seleccionar método HTTP
+            method_index = self.rest_method.findText(request_data.get('method', 'GET'))
+            if method_index >= 0:
+                self.rest_method.setCurrentIndex(method_index)
+            
+            # Cargar headers
+            self.headers_table.setRowCount(0)
+            headers = request_data.get('headers', {})
+            for key, value in headers.items():
+                row = self.headers_table.rowCount()
+                self.headers_table.insertRow(row)
+                self.headers_table.setItem(row, 0, QTableWidgetItem(key))
+                self.headers_table.setItem(row, 1, QTableWidgetItem(str(value)))
+            
+            # Cargar params
+            self.params_table.setRowCount(0)
+            params = request_data.get('params', {})
+            for key, value in params.items():
+                row = self.params_table.rowCount()
+                self.params_table.insertRow(row)
+                self.params_table.setItem(row, 0, QTableWidgetItem(key))
+                self.params_table.setItem(row, 1, QTableWidgetItem(str(value)))
+            
+            # Cargar JSON body
+            json_data = request_data.get('json_data')
+            if json_data:
+                try:
+                    self.json_body_input.setText(json.dumps(json_data, indent=2))
+                except:
+                    self.json_body_input.setText(str(json_data))
+            else:
+                self.json_body_input.setText("")
+        
+        # Cargar patrones de validación
+        validation_pattern = request_data.get('validation_pattern', {})
+        if isinstance(validation_pattern, dict) and validation_pattern:
+            self.validation_pattern_input.setText(json.dumps(validation_pattern, indent=2))
+        else:
+            self.validation_pattern_input.setText(str(validation_pattern))
+        
+        # Cargar opciones de monitoreo
+        monitor_interval = request_data.get('monitor_interval', 15)
+        self.monitor_interval.setValue(monitor_interval)
+        
+        monitor_enabled = request_data.get('monitor_enabled', True)
+        self.monitor_enabled.setChecked(monitor_enabled)
+        
+        add_to_system = request_data.get('add_to_system', False)
+        self.add_to_system.setChecked(add_to_system)
+        
+        logger.info(f"Request cargado en formulario: {request_data.get('name')}")
     
     def check_service(self, service_name: str):
         """
@@ -452,6 +800,73 @@ class RequestForm(QWidget):
         except Exception as e:
             logger.error(f"Error al formatear XML: {str(e)}")
             QMessageBox.warning(self, "Error", f"Error al formatear XML: {str(e)}")
+    
+    def _test_rest_request(self):
+        """Prueba el request REST actual"""
+        url = self.rest_url_input.text().strip()
+        method = self.rest_method.currentText()
+        
+        if not url:
+            QMessageBox.warning(self, "Información", "Especifique la URL del endpoint REST")
+            return
+        
+        try:
+            # Recopilar headers
+            headers = {}
+            for row in range(self.headers_table.rowCount()):
+                key = self.headers_table.item(row, 0).text().strip()
+                value = self.headers_table.item(row, 1).text().strip()
+                if key:
+                    headers[key] = value
+            
+            # Recopilar query params
+            params = {}
+            for row in range(self.params_table.rowCount()):
+                key = self.params_table.item(row, 0).text().strip()
+                value = self.params_table.item(row, 1).text().strip()
+                if key:
+                    params[key] = value
+            
+            # Procesar JSON body para métodos que lo necesitan
+            json_data = None
+            if method in ['POST', 'PUT', 'PATCH']:
+                json_body = self.json_body_input.toPlainText().strip()
+                if json_body:
+                    try:
+                        json_data = json.loads(json_body)
+                    except json.JSONDecodeError as e:
+                        QMessageBox.warning(self, "Error", f"El JSON del body no es válido: {str(e)}")
+                        return
+            
+            # Mostrar indicador de progreso
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            
+            # Verificar que exista el cliente REST o crearlo
+            if not hasattr(self, 'rest_client'):
+                from core.rest_client import RESTClient
+                self.rest_client = RESTClient()
+            
+            # Enviar request
+            success, result = self.rest_client.send_request(
+                url=url,
+                method=method,
+                headers=headers,
+                params=params,
+                json_data=json_data
+            )
+            
+            # Restaurar cursor
+            QApplication.restoreOverrideCursor()
+            
+            # Mostrar diálogo de respuesta
+            self._show_response_dialog(success, result)
+            
+        except Exception as e:
+            # Asegurar que el cursor se restaura
+            QApplication.restoreOverrideCursor()
+            
+            logger.error(f"Error al probar request REST: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error al probar request REST: {str(e)}")
     
     def _test_request(self):
         """Prueba el request SOAP actual"""

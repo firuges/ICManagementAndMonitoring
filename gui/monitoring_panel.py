@@ -17,6 +17,8 @@ from core.persistence import PersistenceManager
 from core.soap_client import SOAPClient
 from core.scheduler import SOAPMonitorScheduler
 
+from core.rest_client import RESTClient
+
 # Configuración de logging
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +44,7 @@ class MonitoringPanel(QWidget):
         self.persistence = persistence
         self.soap_client = soap_client
         self.scheduler = scheduler
+        self.rest_client = RESTClient()  # Añadir cliente REST
         self.selected_service = None  # Servicio seleccionado actualmente
         
         # Crear interfaz
@@ -418,6 +421,9 @@ class MonitoringPanel(QWidget):
         if not service_data:
             return
         
+        # Determinar tipo de servicio
+        service_type = service_data.get('type', 'SOAP')
+        
         # Construir HTML con detalles
         html = "<style>"
         html += "body { font-family: Arial, sans-serif; }"
@@ -433,18 +439,57 @@ class MonitoringPanel(QWidget):
         
         html += f"<h3>{service_data.get('name', 'Sin nombre')}</h3>"
         
+        # Tipo de servicio
+        html += "<p>"
+        html += f"<span class='label'>Tipo:</span>"
+        html += f"<span class='value'>{service_type}</span>"
+        html += "</p>"
+        
         # Descripción
         html += "<p>"
         html += f"<span class='label'>Descripción:</span>"
         html += f"<span class='value'>{service_data.get('description', 'Sin descripción')}</span>"
         html += "</p>"
         
-        # URL WSDL
-        html += "<p>"
-        html += f"<span class='label'>URL WSDL:</span>"
-        html += f"<span class='value'>{service_data.get('wsdl_url', 'No disponible')}</span>"
-        html += "</p>"
+        # Detalles específicos según tipo
+        if service_type == "SOAP":
+            # URL WSDL
+            html += "<p>"
+            html += f"<span class='label'>URL WSDL:</span>"
+            html += f"<span class='value'>{service_data.get('wsdl_url', 'No disponible')}</span>"
+            html += "</p>"
+        else:  # REST
+            # URL y método
+            html += "<p>"
+            html += f"<span class='label'>URL:</span>"
+            html += f"<span class='value'>{service_data.get('url', 'No disponible')}</span>"
+            html += "</p>"
+            
+            html += "<p>"
+            html += f"<span class='label'>Método:</span>"
+            html += f"<span class='value'>{service_data.get('method', 'GET')}</span>"
+            html += "</p>"
         
+            # Headers (si hay)
+            headers = service_data.get('headers', {})
+            if headers:
+                html += "<p>"
+                html += f"<span class='label'>Headers:</span>"
+                html += "<span class='value'>"
+                for key, value in headers.items():
+                    html += f"{key}: {value}<br>"
+                html += "</span></p>"
+            
+            # Params (si hay)
+            params = service_data.get('params', {})
+            if params:
+                html += "<p>"
+                html += f"<span class='label'>Parámetros:</span>"
+                html += "<span class='value'>"
+                for key, value in params.items():
+                    html += f"{key}={value}<br>"
+                html += "</span></p>"
+                
         # Estado
         status = service_data.get('status', 'desconocido')
         status_class = {
@@ -534,20 +579,45 @@ class MonitoringPanel(QWidget):
                 self._log_event(f"Error: No se pudo cargar servicio {service_name}", "error")
                 return
             
-            # Verificar que tenga los datos necesarios
-            if not service_data.get('wsdl_url') or not service_data.get('request_xml'):
-                self._log_event(f"Error: Faltan datos para verificar {service_name}", "error")
-                return
+            # Determinar el tipo de servicio
+            service_type = service_data.get('type', 'SOAP')  # Por defecto SOAP para compatibilidad
             
-            # Guardar una copia completa del servicio para restaurar en caso de error
-            service_backup = service_data.copy()
-            
-            # Enviar request
-            wsdl_url = service_data.get('wsdl_url')
-            request_xml = service_data.get('request_xml')
-            
-            success, result = self.soap_client.send_raw_request(wsdl_url, request_xml)
-            
+            if service_type == 'SOAP':
+                if not service_data.get('wsdl_url') or not service_data.get('request_xml'):
+                    self._log_event(f"Error: Faltan datos para verificar servicio SOAP {service_name}", "error")
+                    return
+                    
+                # Guardar una copia completa del servicio para restaurar en caso de error
+                service_backup = service_data.copy()
+                
+                # Enviar request SOAP
+                wsdl_url = service_data.get('wsdl_url')
+                request_xml = service_data.get('request_xml')
+                
+                success, result = self.soap_client.send_raw_request(wsdl_url, request_xml)
+            else:  # REST
+                if not service_data.get('url'):
+                    self._log_event(f"Error: Falta URL para verificar servicio REST {service_name}", "error")
+                    return
+                    
+                # Guardar una copia completa del servicio para restaurar en caso de error
+                service_backup = service_data.copy()
+                
+                # Preparar parámetros REST
+                url = service_data.get('url')
+                method = service_data.get('method', 'GET')
+                headers = service_data.get('headers', {})
+                params = service_data.get('params', {})
+                json_data = service_data.get('json_data')
+                
+                # Enviar request REST
+                success, result = self.rest_client.send_request(
+                    url=url,
+                    method=method,
+                    headers=headers,
+                    params=params,
+                    json_data=json_data
+                )
             if not success:
                 # Guardar resultado de error
                 self.persistence.update_request_status(service_name, 'failed', result)
@@ -570,7 +640,7 @@ class MonitoringPanel(QWidget):
                         })
                         self._log_event(f"Servicio {service_name} falló: {message}", "error")
                     else:
-                        # La respuesta no cumple con las reglas esperadas (error de validación)
+                        # La respuesta no cumple con las reglas esperadas
                         self.persistence.update_request_status(service_name, 'invalid', {
                             'response': result['response'],
                             'validation_error': message
@@ -589,6 +659,7 @@ class MonitoringPanel(QWidget):
                         'response': result['response']
                     })
                     self._log_event(f"Servicio {service_name} verificado correctamente: {message}")
+
 
             # Verificar integridad del archivo
             file_path = os.path.join(self.persistence.requests_path, 

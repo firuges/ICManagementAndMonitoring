@@ -9,7 +9,7 @@
   "add_to_system": false,
   "status": "ok",
   "created_at": "2025-03-20T23:43:50.268953",
-  "last_checked": "2025-03-21T12:29:20.667412",
+  "last_checked": "2025-03-21T13:22:48.326920",
   "last_response": {
     "response": {
       "cabeceraSalida": {
@@ -24,5 +24,5 @@
       }
     }
   },
-  "updated_at": "2025-03-21T12:29:20.667412"
+  "updated_at": "2025-03-21T13:22:48.326920"
 }
