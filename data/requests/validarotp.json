@@ -1,0 +1,60 @@
+{
+  "name": "ValidarOtp",
+  "description": "validador de otp",
+  "wsdl_url": "http://192.168.64.82:8080/canales/ValidarOtp/v1?wsdl",
+  "request_xml": "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:v1=\"http://xmlns.bancocajasocial.com/co/canales/schema/servicios/ValidarOtp/v1.0\" xmlns:v11=\"http://xmlns.bancocajasocial.com/co/canales/schema/servicios/CabeceraBanca/v1.0\">\n   <soapenv:Header/>\n   <soapenv:Body>\n      <v1:ValidarOtpRequest>\n         <v1:cabeceraEntrada>\n            <!--Optional:-->\n            <v11:seguridad>\n               <!--Optional:-->\n               <v11:usuario>?</v11:usuario>\n            </v11:seguridad>\n            <v11:invocador>\n               <v11:canalOrigen>?</v11:canalOrigen>\n               <v11:codigoATM>?</v11:codigoATM>\n               <v11:codigoOficina>?</v11:codigoOficina>\n               <v11:codigoTerminal>?</v11:codigoTerminal>\n               <!--Optional:-->\n               <v11:componente>?</v11:componente>\n               <v11:direccionIpCliente>?</v11:direccionIpCliente>\n               <v11:direccionIpServidor>?</v11:direccionIpServidor>\n               <v11:direccionMacCliente>?</v11:direccionMacCliente>\n               <v11:direccionMacServidor>?</v11:direccionMacServidor>\n               <!--Optional:-->\n               <v11:fechaProceso>?</v11:fechaProceso>\n               <!--Optional:-->\n               <v11:identificadorTx>?</v11:identificadorTx>\n               <v11:llaveSesion>?</v11:llaveSesion>\n               <!--Optional:-->\n               <v11:origen>?</v11:origen>\n               <v11:pais>?</v11:pais>\n               <!--Optional:-->\n               <v11:procesoBpmId>?</v11:procesoBpmId>\n               <v11:procesoId>?</v11:procesoId>\n               <v11:red>?</v11:red>\n               <v11:subcanal>?</v11:subcanal>\n               <v11:usuario>?</v11:usuario>\n               <!--Optional:-->\n               <v11:accion>?</v11:accion>\n               <!--Optional:-->\n               <v11:destino>?</v11:destino>\n               <!--Optional:-->\n               <v11:usuarioModificacion>?</v11:usuarioModificacion>\n               <!--Optional:-->\n               <v11:numeroReferencia>?</v11:numeroReferencia>\n               <!--Optional:-->\n               <v11:numeroSolicitud>?</v11:numeroSolicitud>\n               <!--Optional:-->\n               <v11:codigoCliente>?</v11:codigoCliente>\n               <!--Optional:-->\n               <v11:correlacion>?</v11:correlacion>\n               <!--Optional:-->\n               <v11:idioma>?</v11:idioma>\n            </v11:invocador>\n         </v1:cabeceraEntrada>\n         <v1:username>?</v1:username>\n         <v1:tipoDocumento>?</v1:tipoDocumento>\n         <v1:numeroDocumento>?</v1:numeroDocumento>\n         <v1:token>?</v1:token>\n      </v1:ValidarOtpRequest>\n   </soapenv:Body>\n</soapenv:Envelope>",
+  "validation_pattern": {
+    "success_field": "#text",
+    "success_values": [
+      "00000"
+    ],
+    "warning_values": [
+      "2001",
+      "2002"
+    ],
+    "failed_values": [
+      "5000",
+      "5001",
+      "9999"
+    ],
+    "validation_strategy": "flexible"
+  },
+  "monitor_interval": 15,
+  "monitor_enabled": true,
+  "add_to_system": false,
+  "status": "warning",
+  "created_at": "2025-03-21T01:50:28.758393",
+  "last_checked": "2025-03-21T12:29:21.423817",
+  "last_response": {
+    "response": {
+      "soapenv:Envelope": {
+        "@xmlns:soapenv": "http://schemas.xmlsoap.org/soap/envelope/",
+        "soapenv:Header": {
+          "@xmlns:v11": "http://xmlns.bancocajasocial.com/co/canales/schema/servicios/CabeceraBanca/v1.0",
+          "@xmlns:v1": "http://xmlns.bancocajasocial.com/co/canales/schema/servicios/ValidarOtp/v1.0"
+        },
+        "soapenv:Body": {
+          "@xmlns:v11": "http://xmlns.bancocajasocial.com/co/canales/schema/servicios/CabeceraBanca/v1.0",
+          "@xmlns:v1": "http://xmlns.bancocajasocial.com/co/canales/schema/servicios/ValidarOtp/v1.0",
+          "ns2:cabeceraSalida": {
+            "@xmlns:ns2": "http://xmlns.bancocajasocial.com/co/schemas/operacion/manejarErrorBancaEmpresas/v1.0",
+            "v1.:codMensaje": {
+              "@xmlns:v1.": "http://xmlns.bancocajasocial.com/co/canales/schema/servicios/CabeceraBanca/v1.0",
+              "#text": "2001"
+            },
+            "v1.:mensajeUsuario": {
+              "@xmlns:v1.": "http://xmlns.bancocajasocial.com/co/canales/schema/servicios/CabeceraBanca/v1.0",
+              "#text": "En estos momentos no podemos atenderlo, por favor intente mas tarde"
+            },
+            "v1.:mensajeTecnico": {
+              "@xmlns:v1.": "http://xmlns.bancocajasocial.com/co/canales/schema/servicios/CabeceraBanca/v1.0",
+              "#text": "2001_EXP_OSB Validate action failed validationPipeline Pair Node1OSB-382505OSB Validate action failed validationstring length (1) does not match length facet (2) for SubCanalType in namespace http://xmlns.bancocajasocial.com/co/canales/schema/servicios/CabeceraBanca/v1.0?Invalid decimal value: unexpected char '63'?Pipeline Pair Node1request-ad486d0.15395a65.0.1722832718a.N798fstg_validarEntradarequest-pipeline"
+            }
+          }
+        }
+      }
+    },
+    "validation_message": "Respuesta con código de advertencia: 2001"
+  },
+  "updated_at": "2025-03-21T12:29:21.423817"
+}

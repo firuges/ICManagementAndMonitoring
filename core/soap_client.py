@@ -749,9 +749,9 @@ class SOAPClient:
             return {"_raw_xml": response_text}
     
     def _flatten_dict(self, d: Dict[str, Any], parent_key: str = '', 
-                    separator: str = '.') -> Dict[str, Any]:
+                separator: str = '.') -> Dict[str, Any]:
         """
-        Aplana un diccionario anidado con manejo mejorado de namespaces.
+        Aplana un diccionario anidado y maneja namespaces XML correctamente.
         
         Args:
             d (Dict[str, Any]): Diccionario a aplanar
@@ -761,57 +761,48 @@ class SOAPClient:
         Returns:
             Dict[str, Any]: Diccionario aplanado
         """
-        if not isinstance(d, dict):
-            return {}
-            
         items = []
-        
         for k, v in d.items():
-            # Normalizar clave eliminando prefijos de namespace
+            # Manejo mejorado de namespaces
             clean_key = k
-            if ':' in k:
-                _, clean_key = k.split(':', 1)
             
-            # Crear nueva clave
+            # Eliminar namespaces como 'ns2:', 'v1.:', etc.
+            if ':' in k:
+                clean_key = k.split(':')[-1]
+            elif '.' in k and k.split('.')[-1] == '':
+                # Manejar casos como 'v1.'
+                parts = k.split('.')
+                if len(parts) > 1:
+                    clean_key = parts[0]
+                    
             new_key = f"{parent_key}{separator}{clean_key}" if parent_key else clean_key
             
-            # También agregar versión con la clave original para mayor compatibilidad
-            original_new_key = f"{parent_key}{separator}{k}" if parent_key else k
+            # Almacenar también con la clave original para compatibilidad
+            original_key = f"{parent_key}{separator}{k}" if parent_key else k
             
             if isinstance(v, dict):
-                # Procesar diccionario anidado
                 items.extend(self._flatten_dict(v, new_key, separator).items())
-                # También agregar el objeto completo en caso de necesitar acceso a nivel superior
-                items.append((new_key, v))
-                items.append((original_new_key, v))
+                # También almacenar versión simple del campo
+                items.append((clean_key, v))
             elif isinstance(v, list):
-                # Procesar lista
-                if v and all(isinstance(item, dict) for item in v):
-                    # Si es lista de diccionarios, procesar cada uno
+                # Manejar listas - procesar cada elemento para arrays de objetos
+                if len(v) > 0 and all(isinstance(item, dict) for item in v):
                     for i, item in enumerate(v):
                         list_key = f"{new_key}{separator}{i}"
                         items.extend(self._flatten_dict(item, list_key, separator).items())
-                    # También agregar la lista completa
-                    items.append((new_key, v))
-                    items.append((original_new_key, v))
-                else:
-                    # Lista de valores simples
-                    items.append((new_key, v))
-                    items.append((original_new_key, v))
-            else:
-                # Valor simple - agregar versiones con y sin namespace
                 items.append((new_key, v))
-                items.append((original_new_key, v))
-                
-                # Agregar también una versión con solo el nombre de la clave
-                # para facilitar búsquedas simples
                 items.append((clean_key, v))
-        
-        # Crear diccionario final, eliminando duplicados
+            else:
+                items.append((new_key, v))
+                items.append((clean_key, v))
+                # También añadir versión sin namespaces
+                items.append((clean_key, v))
+            
+        # Eliminar posibles duplicados manteniendo el último valor
         result = {}
         for k, v in items:
             result[k] = v
-            
+                
         return result
     
     def extract_validation_patterns(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1058,4 +1049,182 @@ class SOAPClient:
         except Exception as e:
             # Capturar excepciones durante la introspección
             return f"{prefix}[Error analizando objeto: {str(e)}]"
+    
+    def validate_response_advanced(self, response: Dict[str, Any], 
+                              validation_schema: Optional[Dict[str, Any]] = None) -> Tuple[bool, str, str]:
+        """
+        Valida la respuesta SOAP con reglas avanzadas y configurables.
+        
+        Args:
+            response (Dict[str, Any]): Respuesta SOAP a validar
+            validation_schema (Dict[str, Any], optional): Esquema de validación avanzado
+            
+        Returns:
+            Tuple[bool, str, str]: (éxito, mensaje, nivel: 'success'|'warning'|'error')
+        """
+        # Si no hay esquema de validación, éxito por defecto
+        if not validation_schema:
+            return True, "Respuesta recibida (sin validación de reglas)", "success"
+        
+        if validation_schema is None:
+            validation_schema = {}
+        elif isinstance(validation_schema, str):
+            try:
+                # Intentar convertir a diccionario si es un string JSON
+                import json
+                validation_schema = json.loads(validation_schema)
+            except:
+                # Si no es un JSON válido, usar esquema simple
+                validation_schema = {"status": "ok"}
+            
+        # Caso especial: esquema simple heredado
+        if len(validation_schema) == 1 and "status" in validation_schema:
+            if validation_schema["status"] == "ok":
+                return True, "El servicio respondió correctamente", "success"
+        
+        # Aplanar respuesta para búsqueda flexible de campos
+        flat_response = self._flatten_dict(response)
+        
+        # Obtener configuración del esquema
+        success_field = validation_schema.get("success_field", "codMensaje")
+        success_values = validation_schema.get("success_values", ["00000"])
+        warning_values = validation_schema.get("warning_values", [])
+        failed_values = validation_schema.get("failed_values", [])
+        expected_fields = validation_schema.get("expected_fields", {})
+        validation_strategy = validation_schema.get("validation_strategy", "flexible")
+        
+        # Buscar el campo principal de éxito/error
+        field_value = None
+        field_found = False
+        
+        # 1. Búsqueda exacta
+        if success_field in flat_response:
+            field_value = flat_response[success_field]
+            field_found = True
+        else:
+            # 2. Búsqueda flexible
+            for key in flat_response.keys():
+                # Coincidencia al final de la clave
+                if key.endswith(success_field):
+                    field_value = flat_response[key]
+                    field_found = True
+                    logger.debug(f"Campo '{success_field}' encontrado como '{key}'")
+                    break
+        
+        # Evaluar resultado según el campo principal
+        if field_found:
+            # Convertir a string para comparación consistente
+            str_value = str(field_value).strip()
+            
+            # Verificar si es éxito
+            if str_value in [str(v).strip() for v in success_values]:
+                # Código de verificación de campos adicionales...
+                return True, f"Respuesta validada correctamente", "success"
+                
+            # Verificar si es advertencia
+            elif str_value in [str(v).strip() for v in warning_values]:
+                return True, f"Respuesta con código de advertencia: {field_value}", "warning"
+                
+            # Verificar si es fallo (nueva categoría)
+            elif str_value in [str(v).strip() for v in failed_values]:
+                return False, f"Respuesta con código de fallo: {field_value}", "failed"
+                
+            # Es un error
+            else:
+                return False, f"Valor incorrecto para '{success_field}'. Esperado: {success_values}, Obtenido: {field_value}", "error"
+        
+        # Si no encontramos el campo principal pero hay rutas alternativas
+        if "alternative_paths" in validation_schema:
+            for alt_path in validation_schema["alternative_paths"]:
+                alt_field = alt_path.get("field")
+                alt_values = alt_path.get("success_values", [])
+                
+                # Búsqueda del campo alternativo
+                alt_found, alt_value = self._find_field_by_path(alt_field, flat_response)
+                
+                if alt_found:
+                    str_alt_value = str(alt_value).strip()
+                    if str_alt_value in [str(v).strip() for v in alt_values]:
+                        return True, f"Validación exitosa mediante ruta alternativa: {alt_field}", "success"
+        
+        # Si llegamos aquí, no encontramos validación exitosa
+        
+        # Modo permisivo - cualquier respuesta no vacía es éxito
+        if validation_strategy == "permissive":
+            return True, "Respuesta aceptada en modo permisivo", "success"
+            
+        # Verificar opción para tratar respuestas vacías como éxito
+        if validation_schema.get("treat_empty_as_success", False) and not response:
+            return True, "Respuesta vacía aceptada como válida", "success"
+        
+        # Validación fallida
+        if not field_found:
+            return False, f"Campo de validación '{success_field}' no encontrado en la respuesta", "error"
+        else:
+            return False, f"Valor no esperado en '{success_field}': {field_value}", "error"
+
+    def _find_field_in_response(self, field_name: str, flat_response: Dict[str, Any]) -> bool:
+        """
+        Busca un campo en la respuesta aplanada con estrategias flexibles.
+        
+        Args:
+            field_name (str): Nombre del campo a buscar
+            flat_response (Dict[str, Any]): Respuesta aplanada
+            
+        Returns:
+            bool: True si el campo se encuentra
+        """
+        # Búsqueda exacta
+        if field_name in flat_response:
+            return True
+            
+        # Búsqueda por terminación de clave
+        for key in flat_response.keys():
+            if key.endswith(field_name) or field_name in key.split('.'):
+                return True
+        
+        return False
+
+    def _find_field_by_path(self, field_path: str, flat_response: Dict[str, Any]) -> Tuple[bool, Any]:
+        """
+        Busca un campo por ruta con soporte mejorado para namespaces XML.
+        
+        Args:
+            field_path (str): Ruta del campo a buscar
+            flat_response (Dict[str, Any]): Respuesta aplanada
+            
+        Returns:
+            Tuple[bool, Any]: (encontrado, valor)
+        """
+        # Búsqueda exacta
+        if field_path in flat_response:
+            return True, flat_response[field_path]
+        
+        # Extraer el nombre del campo sin namespace
+        base_field = field_path.split('.')[-1]
+        
+        # Buscar por cualquier clave que termine con el nombre del campo
+        for key, value in flat_response.items():
+            # Buscar exactamente el nombre del campo al final de la clave
+            if key.endswith(f".{base_field}") or key == base_field:
+                return True, value
+                
+            # Buscar por nombre de campo con namespace al final
+            if ':' in key and key.split(':')[-1] == base_field:
+                return True, value
+                
+            # Buscar por campos con punto en namespace como "v1.:"
+            if '.:' in key and key.endswith(f":{base_field}"):
+                return True, value
+        
+        # Buscar alguna coincidencia parcial en namespaces complejos
+        for key, value in flat_response.items():
+            key_parts = key.split('.')
+            for part in key_parts:
+                if ':' in part:
+                    _, field_name = part.split(':', 1)
+                    if field_name == base_field:
+                        return True, value
+        
+        return False, None
     

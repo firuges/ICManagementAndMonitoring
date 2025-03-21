@@ -331,13 +331,17 @@ class MonitoringPanel(QWidget):
                 status = request.get('status', 'sin verificar')
                 status_item = QTableWidgetItem(status)
                 
-                # Colorear según estado
+               # Colorear según estado
                 if status == 'ok':
-                    status_item.setBackground(QBrush(QColor(200, 255, 200)))
-                elif status == 'failed' or status == 'error':
-                    status_item.setBackground(QBrush(QColor(255, 200, 200)))
+                    status_item.setBackground(QBrush(QColor(200, 255, 200)))  # Verde claro
+                elif status == 'warning':
+                    status_item.setBackground(QBrush(QColor(255, 240, 180)))  # Amarillo suave
+                elif status == 'failed':
+                    status_item.setBackground(QBrush(QColor(255, 180, 180)))  # Rojo claro
+                elif status == 'error':
+                    status_item.setBackground(QBrush(QColor(255, 200, 200)))  # Rojo menos intenso
                 elif status == 'invalid':
-                    status_item.setBackground(QBrush(QColor(255, 255, 200)))
+                    status_item.setBackground(QBrush(QColor(255, 220, 200)))  # Naranja suave
                 
                 self.services_table.setItem(i, 1, status_item)
                 
@@ -420,8 +424,10 @@ class MonitoringPanel(QWidget):
         html += ".label { font-weight: bold; color: #555; }"
         html += ".value { margin-left: 10px; }"
         html += ".ok { color: green; }"
-        html += ".failed { color: red; }"
-        html += ".invalid { color: orange; }"
+        html += ".failed { color: darkred; }"
+        html += ".error { color: red; }"
+        html += ".warning { color: orange; }"
+        html += ".invalid { color: darkorange; }"
         html += ".unknown { color: gray; }"
         html += "</style>"
         
@@ -444,7 +450,8 @@ class MonitoringPanel(QWidget):
         status_class = {
             'ok': 'ok',
             'failed': 'failed',
-            'error': 'failed',
+            'error': 'error',
+            'warning': 'warning',
             'invalid': 'invalid'
         }.get(status, 'unknown')
         
@@ -512,7 +519,7 @@ class MonitoringPanel(QWidget):
     
     def check_service(self, service_name: str):
         """
-        Verifica un servicio específico con manejo mejorado de errores y persistencia.
+        Verifica un servicio específico con validación avanzada.
         
         Args:
             service_name (str): Nombre del servicio a verificar
@@ -546,40 +553,48 @@ class MonitoringPanel(QWidget):
                 self.persistence.update_request_status(service_name, 'failed', result)
                 self._log_event(f"Error en servicio {service_name}: {result.get('error')}", "error")
             else:
-                # Extraer patrones de validación
-                validation_patterns = self.soap_client.extract_validation_patterns(service_data)
+                # Extraer esquema de validación (puede ser el formato anterior o el nuevo)
+                validation_schema = service_data.get('validation_pattern', {})
                 
-                # Validar la respuesta si hay patrones definidos
-                if validation_patterns:
-                    valid, validation_msg = self.soap_client.validate_response(
-                        result['response'], validation_patterns
-                    )
-                    
-                    if not valid:
-                        # La respuesta no cumple con los patrones esperados
+                # Validar la respuesta con el esquema avanzado si existe
+                valid, message, level = self.soap_client.validate_response_advanced(
+                    result['response'], validation_schema
+                )
+
+                if not valid:
+                    if level == "failed":
+                        # La respuesta es un fallo conocido
+                        self.persistence.update_request_status(service_name, 'failed', {
+                            'response': result['response'],
+                            'validation_message': message
+                        })
+                        self._log_event(f"Servicio {service_name} falló: {message}", "error")
+                    else:
+                        # La respuesta no cumple con las reglas esperadas (error de validación)
                         self.persistence.update_request_status(service_name, 'invalid', {
                             'response': result['response'],
-                            'validation_error': validation_msg
+                            'validation_error': message
                         })
-                        self._log_event(f"Validación fallida para {service_name}: {validation_msg}", "warning")
-                    else:
-                        # Todo está bien
-                        self.persistence.update_request_status(service_name, 'ok', {
-                            'response': result['response']
-                        })
-                        self._log_event(f"Servicio {service_name} verificado correctamente")
+                        self._log_event(f"Validación fallida para {service_name}: {message}", "warning")
+                elif level == "warning":
+                    # Validación exitosa pero con advertencias
+                    self.persistence.update_request_status(service_name, 'warning', {
+                        'response': result['response'],
+                        'validation_message': message
+                    })
+                    self._log_event(f"Servicio {service_name} validado con advertencias: {message}", "warning")
                 else:
-                    # Sin validación, solo guardar respuesta
+                    # Todo está bien
                     self.persistence.update_request_status(service_name, 'ok', {
                         'response': result['response']
                     })
-                    self._log_event(f"Servicio {service_name} verificado correctamente (sin validación)")
-            
-            # CRÍTICO: Verificar la existencia del servicio después de actualizar
-            if not os.path.exists(os.path.join(self.persistence.requests_path, 
-                                            f"{service_name.lower().replace(' ', '_')}.json")):
+                    self._log_event(f"Servicio {service_name} verificado correctamente: {message}")
+
+            # Verificar integridad del archivo
+            file_path = os.path.join(self.persistence.requests_path, 
+                                    f"{service_name.lower().replace(' ', '_')}.json")
+            if not os.path.exists(file_path):
                 self._log_event(f"ALERTA: El archivo del servicio desapareció después de actualizar", "error")
-                # Intentar restaurar desde backup
                 self._restore_service_from_backup(service_name, service_backup)
             
             # Actualizar lista y detalles
@@ -670,3 +685,94 @@ class MonitoringPanel(QWidget):
         self.event_log.verticalScrollBar().setValue(
             self.event_log.verticalScrollBar().maximum()
         )
+        
+    def _create_validation_editor(self):
+        """Crea un editor avanzado para la configuración de validación"""
+        validation_group = QGroupBox("Configuración de Validación Avanzada")
+        validation_layout = QVBoxLayout()
+        validation_group.setLayout(validation_layout)
+        
+        # Añadir descripción
+        validation_layout.addWidget(QLabel("Defina reglas personalizadas para validar respuestas:"))
+        
+        # Editor de JSON para configuración avanzada
+        self.validation_editor = QTextEdit()
+        self.validation_editor.setFont(QFont("Courier New", 10))
+        validation_layout.addWidget(self.validation_editor)
+        
+        # Plantillas predefinidas
+        template_layout = QHBoxLayout()
+        template_label = QLabel("Plantillas:")
+        template_layout.addWidget(template_label)
+        
+        self.template_combo = QComboBox()
+        self.template_combo.addItems([
+            "Básica (status: ok)", 
+            "Código de mensaje (codMensaje: 00000)",
+            "Con advertencias (codMensaje múltiple)",
+            "Ruta alternativa",
+            "Modo permisivo"
+        ])
+        self.template_combo.currentIndexChanged.connect(self._apply_validation_template)
+        template_layout.addWidget(self.template_combo)
+        
+        btn_apply_template = QPushButton("Aplicar plantilla")
+        btn_apply_template.clicked.connect(self._apply_selected_template)
+        template_layout.addWidget(btn_apply_template)
+        
+        validation_layout.addLayout(template_layout)
+        
+        return validation_group
+
+    def _apply_selected_template(self):
+        """Aplica la plantilla de validación seleccionada"""
+        index = self.template_combo.currentIndex()
+        self._apply_validation_template(index)
+
+    def _apply_validation_template(self, index):
+        """Aplica una plantilla de validación predefinida"""
+        templates = [
+            # Básica
+            {
+                "status": "ok"
+            },
+            
+            # Código de mensaje
+            {
+                "success_field": "codMensaje",
+                "success_values": ["00000"],
+                "expected_fields": {
+                    "fechaProximoCorte": None
+                }
+            },
+            
+            # Con advertencias
+            {
+                "success_field": "codMensaje",
+                "success_values": ["00000"],
+                "warning_values": ["2001", "2002"],
+                "validation_strategy": "flexible"
+            },
+            
+            # Ruta alternativa
+            {
+                "success_field": "codMensaje",
+                "success_values": ["00000"],
+                "alternative_paths": [
+                    {
+                        "field": "status",
+                        "success_values": ["OK", "SUCCESS"]
+                    }
+                ]
+            },
+            
+            # Modo permisivo
+            {
+                "validation_strategy": "permissive",
+                "treat_empty_as_success": true
+            }
+        ]
+        
+        if 0 <= index < len(templates):
+            template = templates[index]
+            self.validation_editor.setText(json.dumps(template, indent=2))

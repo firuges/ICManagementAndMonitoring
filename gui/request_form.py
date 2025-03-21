@@ -203,6 +203,104 @@ class RequestForm(QWidget):
         
         main_layout.addWidget(splitter)
     
+    def check_service(self, service_name: str):
+        """
+        Verifica un servicio específico con validación avanzada.
+        
+        Args:
+            service_name (str): Nombre del servicio a verificar
+        """
+        self._log_event(f"Verificando servicio: {service_name}")
+        
+        try:
+            # Cargar datos del servicio
+            service_data = self.persistence.load_soap_request(service_name)
+            
+            if not service_data:
+                self._log_event(f"Error: No se pudo cargar servicio {service_name}", "error")
+                return
+            
+            # Verificar que tenga los datos necesarios
+            if not service_data.get('wsdl_url') or not service_data.get('request_xml'):
+                self._log_event(f"Error: Faltan datos para verificar {service_name}", "error")
+                return
+            
+            # Guardar una copia completa del servicio para restaurar en caso de error
+            service_backup = service_data.copy()
+            
+            # Enviar request
+            wsdl_url = service_data.get('wsdl_url')
+            request_xml = service_data.get('request_xml')
+            
+            success, result = self.soap_client.send_raw_request(wsdl_url, request_xml)
+            
+            if not success:
+                # Guardar resultado de error
+                self.persistence.update_request_status(service_name, 'failed', result)
+                self._log_event(f"Error en servicio {service_name}: {result.get('error')}", "error")
+            else:
+                # Extraer esquema de validación (puede ser el formato anterior o el nuevo)
+                validation_schema = service_data.get('validation_pattern', {})
+                if isinstance(validation_pattern, str):
+                    try:
+                        # Intentar convertir a diccionario si es un string con formato JSON
+                        import json
+                        validation_schema = json.loads(validation_pattern)
+                    except:
+                        # Si no es un JSON válido, usar un esquema por defecto
+                        validation_schema = {"status": "ok"}
+                else:
+                    # Ya es un diccionario o algo similar
+                    validation_schema = validation_pattern
+                    
+                # Validar la respuesta con el esquema avanzado si existe
+                valid, message, level = self.soap_client.validate_response_advanced(
+                    result['response'], validation_schema
+                )
+                
+                if not valid:
+                    # La respuesta no cumple con las reglas esperadas
+                    self.persistence.update_request_status(service_name, 'invalid', {
+                        'response': result['response'],
+                        'validation_error': message
+                    })
+                    self._log_event(f"Validación fallida para {service_name}: {message}", "warning")
+                elif level == "warning":
+                    # Validación exitosa pero con advertencias
+                    self.persistence.update_request_status(service_name, 'warning', {
+                        'response': result['response'],
+                        'validation_message': message
+                    })
+                    self._log_event(f"Servicio {service_name} validado con advertencias: {message}", "warning")
+                else:
+                    # Todo está bien
+                    self.persistence.update_request_status(service_name, 'ok', {
+                        'response': result['response']
+                    })
+                    self._log_event(f"Servicio {service_name} verificado correctamente: {message}")
+
+            # Verificar integridad del archivo
+            file_path = os.path.join(self.persistence.requests_path, 
+                                    f"{service_name.lower().replace(' ', '_')}.json")
+            if not os.path.exists(file_path):
+                self._log_event(f"ALERTA: El archivo del servicio desapareció después de actualizar", "error")
+                self._restore_service_from_backup(service_name, service_backup)
+            
+            # Actualizar lista y detalles
+            self.refresh_services_list()
+            
+        except Exception as e:
+            logger.error(f"Error al verificar servicio {service_name}: {str(e)}", exc_info=True)
+            self._log_event(f"Error al verificar {service_name}: {str(e)}", "error")
+            
+            # Registrar error
+            self.persistence.update_request_status(service_name, 'error', {
+                'error': str(e)
+            })
+            
+            # Actualizar lista
+            self.refresh_services_list()
+        
     def _load_requests_list(self):
         """Carga la lista de requests existentes"""
         self.requests_list.clear()
