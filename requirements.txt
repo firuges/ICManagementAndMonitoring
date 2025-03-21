@@ -1,0 +1,14 @@
+# GUI
+PyQt5==5.15.6
+
+# SOAP y XML
+zeep==4.1.0
+lxml==4.9.1
+xmltodict==0.13.0
+
+# Utilidades
+schedule==1.1.0
+jsonschema==4.17.3
+
+# Testing
+pytest==7.3.1
