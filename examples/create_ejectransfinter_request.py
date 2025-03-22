@@ -94,7 +94,7 @@ def create_ejectransfinter_request():
         }
         
         # Guardar request
-        file_path = persistence.save_soap_request(request_data)
+        file_path = persistence.save_service_request(request_data)
         
         logger.info(f"Request EjecTransfInter creado correctamente: {file_path}")
         print(f"Request EjecTransfInter creado correctamente: {file_path}")

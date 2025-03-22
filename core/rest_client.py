@@ -43,20 +43,27 @@ class RESTClient:
             if json_data is not None and 'Content-Type' not in headers:
                 headers['Content-Type'] = 'application/json'
             
-            # Realizar la petición
+            # Log detallado antes de enviar la solicitud
             self.logger.info(f"Enviando request REST {method} a {url}")
-            
+            self.logger.debug(f"Headers: {headers}")
+            self.logger.debug(f"Params: {params}")
+            if json_data:
+                self.logger.debug(f"JSON data: {json_data}")
+                
             response = requests.request(
                 method=method,
                 url=url,
                 headers=headers,
                 params=params,
                 data=data,
-                json=json_data,
+                json=json_data,  # ¡Asegurarnos de enviar correctamente los datos JSON!
                 timeout=timeout,
-                verify=True  # Podría ser configurable para entornos de desarrollo
+                verify=False  # Considerar cambiar a True en producción
             )
             
+            # Log de respuesta
+            self.logger.debug(f"Código de estado: {response.status_code}")
+        
             # Intentar parsear la respuesta como JSON
             try:
                 response_data = response.json()

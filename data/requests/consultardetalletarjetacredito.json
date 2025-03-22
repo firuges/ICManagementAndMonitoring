@@ -13,12 +13,12 @@
       "2001"
     ]
   },
-  "monitor_interval": 15,
+  "monitor_interval": 5,
   "monitor_enabled": true,
-  "add_to_system": false,
+  "add_to_system": true,
   "status": "warning",
   "created_at": "2025-03-20T23:39:47.044090",
-  "last_checked": "2025-03-21T13:22:44.962697",
+  "last_checked": "2025-03-22T01:00:36.968711",
   "last_response": {
     "response": {
       "cabeceraSalida": {
@@ -34,5 +34,5 @@
     },
     "validation_message": "Respuesta con código de advertencia: 2001"
   },
-  "updated_at": "2025-03-21T13:22:44.962697"
+  "updated_at": "2025-03-22T01:00:36.968711"
 }

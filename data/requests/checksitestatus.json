@@ -1,0 +1,36 @@
+{
+  "name": "CheckSiteStatus",
+  "description": "dassad",
+  "type": "REST",
+  "validation_pattern": "jsonCopiar{\n  \"success_field\": \"estadoRespuesta\",\n  \"success_values\": [\"OK\"],\n  \"warning_values\": [\"2001\", \"2002\"],\n  \"failed_values\": [\"4001\", \"4002\", \"4003\", \"4004\"],\n  \"expected_fields\": {\n    \"mensajeUsuario\": null,\n    \"codigoOperacion\": null\n  }\n}\n}",
+  "monitor_interval": 15,
+  "monitor_enabled": true,
+  "add_to_system": false,
+  "status": "ok",
+  "url": "https://localhost:5005/api/sitesCustom/CheckSiteStatus",
+  "method": "POST",
+  "headers": {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  },
+  "params": {},
+  "json_data": {
+    "DocumentTypeId": "NI",
+    "DocumentNumber": 8605011452,
+    "SiteName": "booster036"
+  },
+  "created_at": "2025-03-22T00:44:09.514710",
+  "updated_at": "2025-03-22T00:58:21.058607",
+  "last_checked": "2025-03-22T00:58:21.058607",
+  "last_response": {
+    "response": {
+      "estadoRespuesta": "OK",
+      "result": {
+        "value": "0",
+        "valueName": "Success",
+        "$type": "Infocorp.Framework.BusinessEntities.Framework.Common.OperationResult, Infocorp.Framework.BusinessEntities",
+        "isEnum": "true"
+      }
+    }
+  }
+}

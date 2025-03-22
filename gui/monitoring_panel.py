@@ -582,14 +582,14 @@ class MonitoringPanel(QWidget):
             # Determinar el tipo de servicio
             service_type = service_data.get('type', 'SOAP')  # Por defecto SOAP para compatibilidad
             
+            # Guardar una copia completa del servicio para restaurar en caso de error
+            service_backup = service_data.copy()
+        
             if service_type == 'SOAP':
                 if not service_data.get('wsdl_url') or not service_data.get('request_xml'):
                     self._log_event(f"Error: Faltan datos para verificar servicio SOAP {service_name}", "error")
                     return
                     
-                # Guardar una copia completa del servicio para restaurar en caso de error
-                service_backup = service_data.copy()
-                
                 # Enviar request SOAP
                 wsdl_url = service_data.get('wsdl_url')
                 request_xml = service_data.get('request_xml')
@@ -600,9 +600,6 @@ class MonitoringPanel(QWidget):
                     self._log_event(f"Error: Falta URL para verificar servicio REST {service_name}", "error")
                     return
                     
-                # Guardar una copia completa del servicio para restaurar en caso de error
-                service_backup = service_data.copy()
-                
                 # Preparar parámetros REST
                 url = service_data.get('url')
                 method = service_data.get('method', 'GET')
@@ -610,13 +607,18 @@ class MonitoringPanel(QWidget):
                 params = service_data.get('params', {})
                 json_data = service_data.get('json_data')
                 
+                # Registrar log detallado
+                self._log_event(f"Enviando request REST: URL={url}, Método={method}", "info")
+                if json_data:
+                    self._log_event(f"JSON data: {json.dumps(json_data)[:100]}...", "info")
+                
                 # Enviar request REST
                 success, result = self.rest_client.send_request(
                     url=url,
                     method=method,
                     headers=headers,
                     params=params,
-                    json_data=json_data
+                    json_data=json_data  # Asegurarse de enviar correctamente el JSON
                 )
             if not success:
                 # Guardar resultado de error
@@ -699,8 +701,8 @@ class MonitoringPanel(QWidget):
                 logger.error(f"No hay datos de backup para restaurar {service_name}")
                 return False
                 
-            # Guardar directamente usando la función save_soap_request
-            self.persistence.save_soap_request(backup_data)
+            # Guardar directamente usando la función save_service_request
+            self.persistence.save_service_request(backup_data)
             logger.info(f"Servicio {service_name} restaurado desde backup")
             self._log_event(f"Servicio {service_name} restaurado automáticamente", "info")
             return True

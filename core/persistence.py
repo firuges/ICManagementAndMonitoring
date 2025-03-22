@@ -37,9 +37,9 @@ class PersistenceManager:
         if not os.path.exists(self.email_config_path):
             self.save_email_config({'recipients': []})
     
-    def save_soap_request(self, request_data: Dict[str, Any]) -> str:
+    def save_service_request(self, request_data: Dict[str, Any]) -> str:
         """
-        Guarda un SOAP request en un archivo JSON con preservación mejorada de campos.
+        Guarda un request SOAP o REST en un archivo JSON con preservación mejorada de campos.
         
         Args:
             request_data (Dict[str, Any]): Datos del request a guardar
@@ -47,11 +47,25 @@ class PersistenceManager:
         Returns:
             str: Ruta del archivo guardado
         """
-        # Validar datos mínimos requeridos
-        required_fields = ['name', 'description', 'wsdl_url', 'request_xml']
-        for field in required_fields:
+        # Validar datos mínimos requeridos comunes
+        common_fields = ['name', 'description']
+        for field in common_fields:
             if field not in request_data:
                 raise ValueError(f"Campo requerido faltante: {field}")
+        
+        # Validar campos específicos según el tipo de servicio
+        service_type = request_data.get('type', 'SOAP')  # Por defecto SOAP para compatibilidad
+        
+        if service_type == 'SOAP':
+            soap_fields = ['wsdl_url', 'request_xml']
+            for field in soap_fields:
+                if field not in request_data:
+                    raise ValueError(f"Campo requerido faltante: {field}")
+        else:  # REST
+            rest_fields = ['url', 'method']
+            for field in rest_fields:
+                if field not in request_data:
+                    raise ValueError(f"Campo requerido faltante: {field}")
         
         # Sanear el nombre para usarlo como nombre de archivo
         safe_name = request_data['name'].lower().replace(' ', '_')

@@ -4,6 +4,45 @@ import json
 import os
 from core.persistence import PersistenceManager
 
+def crear_ejemplo_checksite():
+        """Crea un ejemplo de servicio REST para CheckSiteStatus"""
+        
+        # Crear administrador de persistencia
+        persistence = PersistenceManager()
+        
+        # Datos del servicio
+        servicio = {
+            'name': 'CheckSiteStatus',
+            'description': 'Servicio para verificar el estado de un sitio',
+            'type': 'REST',
+            'url': 'https://localhost:5005/api/sitesCustom/CheckSiteStatus',
+            'method': 'POST',
+            'headers': {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            'params': {},
+            'json_data': {
+                'DocumentTypeId': 'NI',
+                'DocumentNumber': 8605011452,
+                'SiteName': 'booster036'
+            },
+            'validation_pattern': {
+                'success_field': 'status',
+                'success_values': ['OK', 'SUCCESS', 200],
+                'validation_strategy': 'flexible'
+            },
+            'monitor_interval': 15,
+            'monitor_enabled': True,
+            'status': 'active'
+        }
+        
+        # Guardar servicio
+        persistence.save_soap_request(servicio)
+        
+        print("Servicio CheckSiteStatus creado correctamente")
+    
+
 def crear_ejemplos_rest(persistence):
     """Crea ejemplos de servicios REST"""
     
@@ -71,8 +110,8 @@ def crear_ejemplos_rest(persistence):
     }
     
     # Guardar ejemplos
-    persistence.save_soap_request(ejemplo1)
-    persistence.save_soap_request(ejemplo2)
+    persistence.save_service_request(ejemplo1)
+    persistence.save_service_request(ejemplo2)
     
     print("Ejemplos REST creados correctamente")
 
@@ -80,3 +119,4 @@ if __name__ == "__main__":
     # Crear administrador de persistencia
     persistence = PersistenceManager()
     crear_ejemplos_rest(persistence)
+    crear_ejemplo_checksite(persistence)

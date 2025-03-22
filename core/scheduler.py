@@ -75,6 +75,39 @@ class SOAPMonitorScheduler:
             logger.warning(f"No existe tarea para {request_name}")
             return False
     
+    def check_system_task_exists(self, task_name: str) -> bool:
+        """
+        Verifica si una tarea existe en el programador de tareas del sistema.
+        
+        Args:
+            task_name (str): Nombre de la tarea
+            
+        Returns:
+            bool: True si la tarea existe
+        """
+        try:
+            # Determinar sistema operativo
+            if sys.platform.startswith('win'):
+                # Windows - usar schtasks
+                result = subprocess.run(
+                    f'schtasks /query /tn "SOAPMonitor_{task_name}" /fo list',
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                # Si el comando fue exitoso, la tarea existe
+                return result.returncode == 0
+            else:
+                # Linux/Unix - usar crontab
+                current_crontab = subprocess.check_output("crontab -l 2>/dev/null || echo ''", shell=True, text=True)
+                task_marker = f"# SOAPMonitor_{task_name}"
+                return task_marker in current_crontab
+                
+        except Exception as e:
+            logger.error(f"Error al verificar existencia de tarea: {str(e)}")
+            return False
+    
     def _run_scheduler(self) -> None:
         """Ejecuta el bucle del programador"""
         self.running = True

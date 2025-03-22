@@ -1,0 +1,5 @@
+{
+  "notify_on_error": true,
+  "notify_on_validation": true,
+  "notify_daily_summary": false
+}
