@@ -1,26 +1,26 @@
 {
   "name": "CheckSiteStatus",
   "description": "dassad",
-  "group": "Soap Caja Social",
   "type": "REST",
   "validation_pattern": "jsonCopiar{\n  \"success_field\": \"estadoRespuesta\",\n  \"success_values\": [\"OK\"],\n  \"warning_values\": [\"2001\", \"2002\"],\n  \"failed_values\": [\"4001\", \"4002\", \"4003\", \"4004\"],\n  \"expected_fields\": {\n    \"mensajeUsuario\": null,\n    \"codigoOperacion\": null\n  }\n}\n}",
   "monitor_interval": 15,
   "monitor_enabled": true,
   "add_to_system": false,
-  "status": "active",
+  "status": "ok",
   "url": "https://localhost:5005/api/sitesCustom/CheckSiteStatus",
   "method": "POST",
   "headers": {
-    "Accept": "application/json",
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    "Accept": "application/json"
   },
   "params": {},
   "json_data": {
-    "DocumentNumber": 8605011452,
     "DocumentTypeId": "NI",
+    "DocumentNumber": 8605011452,
     "SiteName": "booster036"
   },
   "created_at": "2025-03-22T00:44:09.514710",
+  "updated_at": "2025-03-22T01:27:10.060081",
   "last_checked": "2025-03-22T01:27:10.060081",
   "last_response": {
     "response": {
@@ -32,6 +32,5 @@
         "isEnum": "true"
       }
     }
-  },
-  "updated_at": "2025-03-22T03:23:17.714721"
+  }
 }

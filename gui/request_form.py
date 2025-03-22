@@ -69,7 +69,30 @@ class RequestForm(QWidget):
         """Crea la interfaz de usuario"""
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
-        
+        # Estilos CSS para mejorar la apariencia
+        style = """
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #cccccc;
+                border-radius: 4px;
+                margin-top: 8px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px;
+            }
+            QPushButton {
+                min-height: 24px;
+                border-radius: 3px;
+            }
+            QTextBrowser, QTextEdit {
+                border: 1px solid #cccccc;
+                border-radius: 2px;
+            }
+        """
+        self.setStyleSheet(style)
         # Sección izquierda (lista de requests)
         left_panel = QWidget()
         left_layout = QVBoxLayout()
@@ -109,6 +132,12 @@ class RequestForm(QWidget):
         self.description_input.setMaximumHeight(100)
         self.description_input.setPlaceholderText("Descripción del propósito del servicio")
         form_layout.addRow("Descripción:", self.description_input)
+        
+        #Grupos
+        self.group_input = QComboBox()
+        self.group_input.setEditable(True)  # Permitir ingresar grupos personalizados
+        self.group_input.addItems(["General", "Financiero", "Clientes", "Productos", "Seguridad", "Monitoreo"])
+        form_layout.addRow("Grupo:", self.group_input)
         
         # Tipo de servicio (SOAP/REST)
         self.service_type = QComboBox()
@@ -170,30 +199,41 @@ class RequestForm(QWidget):
         
         # ---------- CONTENEDOR PARA REST ----------
         self.rest_widget = QWidget()
-        rest_layout = QVBoxLayout()
-        self.rest_widget.setLayout(rest_layout)
+        rest_main_layout = QVBoxLayout()
+        self.rest_widget.setLayout(rest_main_layout)
+
+        # Sección superior (URL y método)
+        top_section = QFormLayout()
 
         # URL Base (para REST)
         self.rest_url_input = QLineEdit()
         self.rest_url_input.setPlaceholderText("URL del endpoint (ej: https://api.ejemplo.com/v1/recurso)")
-        rest_layout.addWidget(QLabel("URL:"))
-        rest_layout.addWidget(self.rest_url_input)
+        top_section.addRow("URL:", self.rest_url_input)
 
         # Método HTTP
         self.rest_method = QComboBox()
         self.rest_method.addItems(["GET", "POST", "PUT", "DELETE", "PATCH"])
-        rest_layout.addWidget(QLabel("Método HTTP:"))
-        rest_layout.addWidget(self.rest_method)
+        top_section.addRow("Método HTTP:", self.rest_method)
 
-        # Headers - Lista de visualización con botones
+        # Añadir sección superior
+        rest_main_layout.addLayout(top_section)
+
+        # Sección de dos columnas para el contenido principal
+        two_columns_widget = QWidget()
+        two_columns_layout = QHBoxLayout(two_columns_widget)
+        two_columns_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Columna izquierda
+        left_column = QVBoxLayout()
+
+        # Headers
         headers_group = QGroupBox("Headers")
         headers_layout = QVBoxLayout()
         headers_group.setLayout(headers_layout)
         headers_group.setStyleSheet("QGroupBox { font-weight: bold; }")
-        headers_group.setMinimumHeight(200)
 
         self.headers_list = QTextBrowser()
-        self.headers_list.setMaximumHeight(150)
+        self.headers_list.setMaximumHeight(100)
         self.headers_list.setPlaceholderText("No hay headers configurados")
         headers_layout.addWidget(self.headers_list)
 
@@ -202,15 +242,15 @@ class RequestForm(QWidget):
         self.btn_edit_headers.clicked.connect(self._edit_headers_dialog)
         headers_buttons.addWidget(self.btn_edit_headers)
         headers_layout.addLayout(headers_buttons)
-        rest_layout.addWidget(headers_group)
+        left_column.addWidget(headers_group)
 
-        # Query Parameters - Lista de visualización con botones
+        # Query Parameters
         params_group = QGroupBox("Query Parameters")
         params_layout = QVBoxLayout()
         params_group.setLayout(params_layout)
 
         self.params_list = QTextBrowser()
-        self.params_list.setMaximumHeight(150)
+        self.params_list.setMaximumHeight(100)
         self.params_list.setPlaceholderText("No hay parámetros configurados")
         params_layout.addWidget(self.params_list)
 
@@ -219,16 +259,19 @@ class RequestForm(QWidget):
         self.btn_edit_params.clicked.connect(self._edit_params_dialog)
         params_buttons.addWidget(self.btn_edit_params)
         params_layout.addLayout(params_buttons)
-        rest_layout.addWidget(params_group)
+        left_column.addWidget(params_group)
 
-        # Body JSON - Vista previa y botón de edición
+        # Columna derecha
+        right_column = QVBoxLayout()
+
+        # Body JSON
         json_group = QGroupBox("Body JSON")
         json_layout = QVBoxLayout()
         json_group.setLayout(json_layout)
 
         self.json_preview = QTextBrowser()
-        self.json_preview.setMaximumHeight(150)
         self.json_preview.setFont(QFont("Courier New", 10))
+        self.json_preview.setMinimumHeight(220)  # Hacer más alto para equilibrar con columna izquierda
         self.json_preview.setPlaceholderText("No hay JSON configurado")
         json_layout.addWidget(self.json_preview)
 
@@ -237,14 +280,23 @@ class RequestForm(QWidget):
         self.btn_edit_json.clicked.connect(self._edit_json_dialog)
         json_buttons.addWidget(self.btn_edit_json)
         json_layout.addLayout(json_buttons)
-        rest_layout.addWidget(json_group)
+        right_column.addWidget(json_group)
 
-        # Botón para probar REST
+        # Añadir columnas al layout principal
+        two_columns_layout.addLayout(left_column)
+        two_columns_layout.addLayout(right_column)
+        rest_main_layout.addWidget(two_columns_widget)
+
+        # Botón para probar REST en sección inferior
+        test_section = QHBoxLayout()
+        test_section.addStretch()
         self.btn_test_rest = QPushButton("Probar REST")
         self.btn_test_rest.clicked.connect(self._test_rest_request)
-        rest_layout.addWidget(self.btn_test_rest)
-        
-        # Añadir widgets al contenedor específico de tipo
+        self.btn_test_rest.setMinimumWidth(120)
+        test_section.addWidget(self.btn_test_rest)
+        rest_main_layout.addLayout(test_section)
+
+        # Añadir al contenedor principal
         self.type_specific_container.addWidget(self.soap_widget)
         self.type_specific_container.addWidget(self.rest_widget)
         form_layout.addRow(self.type_specific_container)
@@ -253,26 +305,51 @@ class RequestForm(QWidget):
         validation_tab = QWidget()
         validation_layout = QVBoxLayout()
         validation_tab.setLayout(validation_layout)
-        
-        validation_layout.addWidget(QLabel("Patrones de Validación:"))
-        validation_layout.addWidget(QLabel("Defina cómo validar la respuesta del servicio"))
-        
+
+        # Primera fila: Título y explicación
+        validation_header = QHBoxLayout()
+        validation_header.addWidget(QLabel("<b>Patrones de Validación:</b>"))
+        validation_layout.addLayout(validation_header)
+
+        # Área de texto para patrones
         self.validation_pattern_input = QTextEdit()
-        self.validation_pattern_input.setPlaceholderText("{\n  \"campo1\": \"valor_esperado\",\n  \"campo2\": null\n}")
-        self.validation_pattern_input.setFont(font)
+        self.validation_pattern_input.setPlaceholderText('{\n  "success_field": "codMensaje",\n  "success_values": ["00000"],\n  "expected_fields": {\n    "campo1": "valor_esperado",\n    "campo2": null\n  }\n}')
+        self.validation_pattern_input.setFont(QFont("Courier New", 10))
         validation_layout.addWidget(self.validation_pattern_input)
-        
-        # Agregar explicación
-        validation_layout.addWidget(QLabel(
-            "Formato: JSON con campos esperados en la respuesta.\n"
-            "- Si el valor es null, solo se valida que el campo exista.\n"
-            "- Si se especifica un valor, se valida que coincida exactamente."
-        ))
-        
-        # Crear tabs comunes para validación
-        tabs = QTabWidget()
-        tabs.addTab(validation_tab, "Validación")
-        form_layout.addRow(tabs)
+
+        # Explicación y ejemplos organizados en forma de tabla
+        explanation = QLabel(
+            "<p><b>Formato:</b> JSON con campos esperados en la respuesta.</p>"
+            "<table border='0' style='margin-left: 10px;'>"
+            "<tr><td>• Si el valor es <code>null</code>:</td><td>Solo se valida que el campo exista.</td></tr>"
+            "<tr><td>• Si se especifica un valor:</td><td>Se valida que coincida exactamente.</td></tr>"
+            "<tr><td>• Campos anidados:</td><td>Usar notación con punto (ej: <code>cabecera.codMensaje</code>)</td></tr>"
+            "</table>"
+        )
+        explanation.setWordWrap(True)
+        validation_layout.addWidget(explanation)
+
+        # Botones de ayuda y ejemplos
+        validation_help = QHBoxLayout()
+        templates_combo = QComboBox()
+        templates_combo.addItems([
+            "Seleccione un ejemplo...",
+            "Validación básica",
+            "Con advertencias (codMensaje)",
+            "Verificación de campos",
+            "Respuesta REST estándar"
+        ])
+        validation_help.addWidget(templates_combo)
+
+        apply_template_btn = QPushButton("Aplicar")
+        apply_template_btn.clicked.connect(lambda: self._apply_validation_template(templates_combo.currentText()))
+        validation_help.addWidget(apply_template_btn)
+        validation_layout.addLayout(validation_help)
+
+        # Agregar tab al contenedor de pestañas
+        validation_tabs = QTabWidget()
+        validation_tabs.addTab(validation_tab, "Validación")
+        form_layout.addRow(validation_tabs)
         
         # Opciones de monitoreo
         monitoring_group = QGroupBox("Opciones de Monitoreo")
@@ -319,7 +396,44 @@ class RequestForm(QWidget):
         
         main_layout.addWidget(splitter)
     
-    
+    def _apply_validation_template(self, template_name):
+        """Aplica una plantilla de validación predefinida"""
+        templates = {
+            "Validación básica": {
+                "status": "ok"
+            },
+            "Con advertencias (codMensaje)": {
+                "success_field": "codMensaje",
+                "success_values": ["00000"],
+                "warning_values": ["2001", "2002"],
+                "validation_strategy": "flexible"
+            },
+            "Verificación de campos": {
+                "success_field": "codMensaje",
+                "success_values": ["00000"],
+                "expected_fields": {
+                    "fechaOperacion": None,
+                    "identificador": None,
+                    "estado": "ACTIVO"
+                }
+            },
+            "Respuesta REST estándar": {
+                "success_field": "status",
+                "success_values": [200, "OK", "SUCCESS"],
+                "expected_fields": {
+                    "data": None,
+                    "message": "Operation completed successfully"
+                },
+                "validation_strategy": "flexible"
+            }
+        }
+        
+        if template_name in templates:
+            template = templates.get(template_name)
+            if template:
+                formatted_json = json.dumps(template, indent=2)
+                self.validation_pattern_input.setText(formatted_json)
+            
     def _edit_headers_dialog(self):
         """Abre un diálogo para editar los headers HTTP"""
         dialog = QDialog(self)
@@ -433,14 +547,18 @@ class RequestForm(QWidget):
         self.headers = headers  # Guardar internamente
         
         if not headers:
-            self.headers_list.setPlainText("No hay headers configurados")
+            self.headers_list.setHtml("<p style='color: #777; text-align: center; margin-top: 10px;'>No hay headers configurados</p>")
             return
         
-        text = ""
-        for key, value in headers.items():
-            text += f"{key}: {value}\n"
+        html = "<table style='width: 100%; border-collapse: collapse;'>"
+        html += "<tr style='background-color: #f5f5f5;'><th style='text-align: left; padding: 3px; border-bottom: 1px solid #ddd;'>Nombre</th><th style='text-align: left; padding: 3px; border-bottom: 1px solid #ddd;'>Valor</th></tr>"
         
-        self.headers_list.setPlainText(text)
+        for key, value in headers.items():
+            html += f"<tr><td style='padding: 3px; border-bottom: 1px solid #f0f0f0;'>{key}</td><td style='padding: 3px; border-bottom: 1px solid #f0f0f0;'>{value}</td></tr>"
+        
+        html += "</table>"
+        
+        self.headers_list.setHtml(html)
     
     def _edit_params_dialog(self):
         """Abre un diálogo para editar los parámetros de query"""
@@ -517,14 +635,18 @@ class RequestForm(QWidget):
         self.params = params  # Guardar internamente
         
         if not params:
-            self.params_list.setPlainText("No hay parámetros configurados")
+            self.params_list.setHtml("<p style='color: #777; text-align: center; margin-top: 10px;'>No hay parámetros configurados</p>")
             return
         
-        text = ""
-        for key, value in params.items():
-            text += f"{key}={value}\n"
+        html = "<table style='width: 100%; border-collapse: collapse;'>"
+        html += "<tr style='background-color: #f5f5f5;'><th style='text-align: left; padding: 3px; border-bottom: 1px solid #ddd;'>Nombre</th><th style='text-align: left; padding: 3px; border-bottom: 1px solid #ddd;'>Valor</th></tr>"
         
-        self.params_list.setPlainText(text)
+        for key, value in params.items():
+            html += f"<tr><td style='padding: 3px; border-bottom: 1px solid #f0f0f0;'>{key}</td><td style='padding: 3px; border-bottom: 1px solid #f0f0f0;'>{value}</td></tr>"
+        
+        html += "</table>"
+        
+        self.params_list.setHtml(html)
     
     def _edit_json_dialog(self):
         """Abre un diálogo para editar el JSON del body"""
@@ -649,21 +771,17 @@ class RequestForm(QWidget):
                 "role": "user",
                 "active": True
             },
+            "CheckSiteStatus": {
+                "DocumentTypeId": "NI",
+                "DocumentNumber": 8605011452,
+                "SiteName": "booster036"
+            },
             "Data Update": {
                 "id": 12345,
                 "fields": {
                     "status": "active",
                     "lastModified": "2023-01-01T12:00:00Z"
                 }
-            },
-            "Search Query": {
-                "query": "search term",
-                "filters": {
-                    "category": ["books", "electronics"],
-                    "priceRange": {"min": 10, "max": 100}
-                },
-                "sort": {"field": "price", "order": "asc"},
-                "pagination": {"page": 1, "limit": 20}
             }
         }
         
@@ -682,15 +800,47 @@ class RequestForm(QWidget):
         self.json_data = json_data  # Guardar internamente
         
         if not json_data:
-            self.json_preview.setPlainText("No hay JSON configurado")
+            self.json_preview.setHtml("<p style='color: #777; text-align: center; margin-top: 30px;'>No hay JSON configurado</p>")
             return
         
         try:
             preview_text = json.dumps(json_data, indent=2)
-            # Limitar longitud para preview
-            if len(preview_text) > 500:
-                preview_text = preview_text[:500] + "...\n[Ver más en el editor]"
-            self.json_preview.setPlainText(preview_text)
+            
+            # Formatear JSON con colores para mejor visualización
+            formatted_html = "<pre style='margin: 0; padding: 5px;'>"
+            for line in preview_text.split('\n'):
+                # Destacar llaves y corchetes
+                line = line.replace("{", "<span style='color: #0000CC;'>{</span>")
+                line = line.replace("}", "<span style='color: #0000CC;'>}</span>")
+                line = line.replace("[", "<span style='color: #0000CC;'>[</span>")
+                line = line.replace("]", "<span style='color: #0000CC;'>]</span>")
+                
+                # Destacar comillas y contenido
+                if ":" in line:
+                    parts = line.split(":", 1)
+                    # Clave
+                    key = parts[0]
+                    key = re.sub(r'"(.*?)"', r'<span style="color: #008800;">"</span><span style="color: #880000; font-weight: bold;">\1</span><span style="color: #008800;">"</span>', key)
+                    
+                    # Valor
+                    value = parts[1]
+                    # Strings
+                    value = re.sub(r'"(.*?)"', r'<span style="color: #008800;">"</span><span style="color: #0000BB;">\1</span><span style="color: #008800;">"</span>', value)
+                    # Números
+                    value = re.sub(r'(\s*?)(\d+)', r'\1<span style="color: #AA0000;">\2</span>', value)
+                    # Boolean
+                    value = re.sub(r'(true|false)', r'<span style="color: #AA6600;">\1</span>', value)
+                    
+                    line = key + ":" + value
+                
+                formatted_html += line + "\n"
+            formatted_html += "</pre>"
+            
+            # Limitar tamaño para preview
+            if len(preview_text) > 1000:
+                formatted_html += "<p style='text-align: center; color: #666;'>[... Ver más en el editor ...]</p>"
+                
+            self.json_preview.setHtml(formatted_html)
         except Exception as e:
             self.json_preview.setPlainText(f"Error al mostrar JSON: {str(e)}")
     
@@ -772,6 +922,7 @@ class RequestForm(QWidget):
             request_data = {
                 'name': name,
                 'description': description,
+                'group': self.group_input.currentText(),  # Añadir grupo
                 'type': service_type,
                 'validation_pattern': validation_data,
                 'monitor_interval': self.monitor_interval.value(),
@@ -891,6 +1042,14 @@ class RequestForm(QWidget):
             self.json_data = request_data.get('json_data')
             self._update_json_preview(self.json_data)
         
+        # Cargar el grupo
+        group = request_data.get('group', 'General')
+        index = self.group_input.findText(group)
+        if index >= 0:
+            self.group_input.setCurrentIndex(index)
+        else:
+            self.group_input.setCurrentText(group)
+            
         # Cargar patrones de validación
         validation_pattern = request_data.get('validation_pattern', {})
         if isinstance(validation_pattern, dict) and validation_pattern:

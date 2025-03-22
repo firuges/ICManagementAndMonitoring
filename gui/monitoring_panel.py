@@ -75,17 +75,30 @@ class MonitoringPanel(QWidget):
         
         services_layout.addWidget(QLabel("<h2>Servicios Monitoreados</h2>"))
         
+        
+        
         # Tabla de servicios
-        self.services_table = QTableWidget(0, 5)
+        self.services_table = QTableWidget(0, 6)
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Filtrar por grupo:"))
+        
+        self.group_filter = QComboBox()
+        self.group_filter.addItem("Todos los grupos")
+        self.group_filter.currentIndexChanged.connect(self._filter_by_group)
+        filter_layout.addWidget(self.group_filter)
+        
+        services_layout.addLayout(filter_layout)
+        services_layout.addWidget(self.services_table)
         self.services_table.setHorizontalHeaderLabels([
-            "Servicio", "Estado", "Última Verificación", "Intervalo", "Acciones"
+            "Servicio", "Tipo", "Estado", "Última Verificación", "Intervalo", "Acciones"
         ])
         self.services_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.services_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.services_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Nueva columna Tipo
         self.services_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.services_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.services_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
-        self.services_table.setColumnWidth(4, 120)
+        self.services_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.services_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
+        self.services_table.setColumnWidth(5, 120)  # Ahora Acciones es columna 5
         self.services_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.services_table.setSelectionMode(QTableWidget.SingleSelection)
         self.services_table.itemClicked.connect(self._on_service_selected)
@@ -167,6 +180,26 @@ class MonitoringPanel(QWidget):
         log_layout.addLayout(log_buttons_layout)
         
         main_layout.addWidget(log_group, 1)
+
+    def _filter_by_group(self):
+        """Filtra los servicios por grupo seleccionado"""
+        selected_group = self.group_filter.currentText()
+        
+        # Si es "Todos los grupos", mostrar todos
+        if selected_group == "Todos los grupos":
+            for row in range(self.services_table.rowCount()):
+                self.services_table.setRowHidden(row, False)
+            return
+        
+        # Ocultar filas que no pertenecen al grupo seleccionado
+        for row in range(self.services_table.rowCount()):
+            item = self.services_table.item(row, 0)
+            if item:
+                service_data = item.data(Qt.UserRole)
+                service_group = service_data.get('group', 'General')
+                
+                # Ocultar o mostrar según el grupo
+                self.services_table.setRowHidden(row, service_group != selected_group)
     
     def _show_response_structure(self):
         """Muestra la estructura detallada de la respuesta para diagnóstico"""
@@ -316,6 +349,23 @@ class MonitoringPanel(QWidget):
             # Limpiar tabla
             self.services_table.setRowCount(0)
             
+            groups = set(["Todos los grupos"])
+            for req in requests:
+                if 'group' in req and req['group']:
+                    groups.add(req['group'])
+            
+            # Guardar grupo seleccionado actualmente
+            current_group = self.group_filter.currentText()
+            
+            # Actualizar combo de grupos
+            self.group_filter.clear()
+            self.group_filter.addItems(sorted(list(groups)))
+            
+            # Restaurar selección anterior si existe
+            index = self.group_filter.findText(current_group)
+            if index >= 0:
+                self.group_filter.setCurrentIndex(index)
+                
             # Llenar tabla con servicios
             for i, request in enumerate(sorted(requests, key=lambda x: x.get('name', ''))):
                 # VERIFICACIÓN: Asegurar campos mínimos
@@ -329,6 +379,16 @@ class MonitoringPanel(QWidget):
                 name_item = QTableWidgetItem(request.get('name', 'Sin nombre'))
                 name_item.setData(Qt.UserRole, request)  # Almacenar datos completos
                 self.services_table.setItem(i, 0, name_item)
+                
+                # Agregar columna de tipo (SOAP/REST)
+                service_type = request.get('type', 'SOAP')
+                type_item = QTableWidgetItem(service_type)
+                # Dar estilo visual según el tipo
+                if service_type == 'REST':
+                    type_item.setBackground(QBrush(QColor(230, 245, 255)))  # Azul claro para REST
+                else:
+                    type_item.setBackground(QBrush(QColor(240, 255, 240)))  # Verde claro para SOAP
+                self.services_table.setItem(i, 1, type_item)
                 
                 # Estado
                 status = request.get('status', 'sin verificar')
@@ -346,7 +406,7 @@ class MonitoringPanel(QWidget):
                 elif status == 'invalid':
                     status_item.setBackground(QBrush(QColor(255, 220, 200)))  # Naranja suave
                 
-                self.services_table.setItem(i, 1, status_item)
+                self.services_table.setItem(i, 2, status_item)
                 
                 # Última verificación
                 last_checked = request.get('last_checked', '')
@@ -359,17 +419,46 @@ class MonitoringPanel(QWidget):
                         logger.warning(f"Error al formatear fecha: {str(e)}")
                         # Mantener el valor original si hay error
                 
-                self.services_table.setItem(i, 2, QTableWidgetItem(last_checked))
+                self.services_table.setItem(i, 3, QTableWidgetItem(last_checked))
                 
-                # Intervalo
+                # Intervalo - Ahora en columna 4
                 interval = request.get('monitor_interval', 15)
-                self.services_table.setItem(i, 3, QTableWidgetItem(f"{interval} min"))
+                self.services_table.setItem(i, 4, QTableWidgetItem(f"{interval} min"))
                 
-                # Botón de verificar
+                # Modificar la celda de acciones para incluir múltiples botones
+                actions_widget = QWidget()
+                actions_layout = QHBoxLayout(actions_widget)
+                actions_layout.setContentsMargins(2, 2, 2, 2)
+                actions_layout.setSpacing(2)
+                
                 check_button = QPushButton("Verificar")
+                check_button.setMaximumWidth(80)
                 check_button.clicked.connect(lambda checked, name=request.get('name'): 
                                             self.check_service(name))
-                self.services_table.setCellWidget(i, 4, check_button)
+                # Botón de Enable/Disable
+                is_enabled = request.get('monitor_enabled', True)
+                toggle_button = QPushButton()
+                toggle_button.setMaximumWidth(30)
+                toggle_button.setToolTip("Habilitar/Deshabilitar monitoreo")
+                
+                # Establecer ícono según estado (puedes usar QIcon o texto)
+                if is_enabled:
+                    toggle_button.setText("✓")
+                    toggle_button.setStyleSheet("background-color: #8CED99;")
+                else:
+                    toggle_button.setText("✗")
+                    toggle_button.setStyleSheet("background-color: #FF9B9B;")
+                
+                toggle_button.clicked.connect(lambda checked, name=request.get('name'): 
+                                            self._toggle_service_status(name))
+                
+                # Añadir botones al layout
+                actions_layout.addWidget(check_button)
+                actions_layout.addWidget(toggle_button)
+                
+                # Ajustar propiedades del widget
+                actions_widget.setLayout(actions_layout)
+                self.services_table.setCellWidget(i, 5, actions_widget)
                 
                 # Si este es el servicio que estaba seleccionado, guardar índice
                 if selected_service_name and request.get('name') == selected_service_name:
@@ -393,6 +482,44 @@ class MonitoringPanel(QWidget):
         except Exception as e:
             logger.error(f"Error crítico al actualizar lista de servicios: {str(e)}", exc_info=True)
             self._log_event(f"Error al actualizar lista: {str(e)}", "error")
+    
+    def _toggle_service_status(self, service_name: str):
+        """Habilita o deshabilita el monitoreo de un servicio"""
+        try:
+            # Cargar datos del servicio
+            service_data = self.persistence.load_soap_request(service_name)
+            
+            if not service_data:
+                self._log_event(f"Error: No se pudo cargar servicio {service_name}", "error")
+                return
+            
+            # Cambiar estado de monitoreo
+            is_enabled = service_data.get('monitor_enabled', True)
+            service_data['monitor_enabled'] = not is_enabled
+            
+            # Guardar cambios
+            self.persistence.save_soap_request(service_data)
+            
+            # Actualizar vista
+            self.refresh_services_list()
+            
+            # Actualizar programación si corresponde
+            if service_data['monitor_enabled']:
+                self._log_event(f"Servicio {service_name} habilitado para monitoreo", "info")
+                # Si también está configurado para sistema, actualizar
+                if service_data.get('add_to_system', False):
+                    if self.scheduler.generate_system_task(service_name, service_data.get('monitor_interval', 15)):
+                        self._log_event(f"Tarea del sistema actualizada para {service_name}", "info")
+            else:
+                self._log_event(f"Servicio {service_name} deshabilitado para monitoreo", "info")
+                # Eliminar tarea del sistema si existe
+                if service_data.get('add_to_system', False):
+                    if self.scheduler.remove_system_task(service_name):
+                        self._log_event(f"Tarea del sistema eliminada para {service_name}", "info")
+            
+        except Exception as e:
+            logger.error(f"Error al cambiar estado de servicio {service_name}: {str(e)}")
+            self._log_event(f"Error al cambiar estado: {str(e)}", "error")
     
     def _on_service_selected(self, item):
         """
@@ -421,6 +548,9 @@ class MonitoringPanel(QWidget):
         if not service_data:
             return
         
+        # Añadir información de monitoreo
+        
+        
         # Determinar tipo de servicio
         service_type = service_data.get('type', 'SOAP')
         
@@ -438,6 +568,21 @@ class MonitoringPanel(QWidget):
         html += "</style>"
         
         html += f"<h3>{service_data.get('name', 'Sin nombre')}</h3>"
+        
+        html += "<p>"
+        html += f"<span class='label'>Grupo:</span>"
+        html += f"<span class='value'>{service_data.get('group', 'General')}</span>"
+        html += "</p>"
+        
+        # Estado de monitoreo
+        monitor_enabled = service_data.get('monitor_enabled', True)
+        html += "<p>"
+        html += f"<span class='label'>Monitoreo:</span>"
+        if monitor_enabled:
+            html += f"<span class='value ok'>Habilitado</span>"
+        else:
+            html += f"<span class='value warning'>Deshabilitado</span>"
+        html += "</p>"
         
         # Tipo de servicio
         html += "<p>"
@@ -718,11 +863,18 @@ class MonitoringPanel(QWidget):
             # Obtener lista de servicios
             requests = self.persistence.list_all_requests()
             
-            # Verificar cada servicio
+            # Contador para estadísticas
+            total = 0
+            checked = 0
+            
             for request in requests:
+                total += 1
                 service_name = request.get('name')
-                if service_name:
+                
+                # Verificar solo si está habilitado
+                if service_name and request.get('monitor_enabled', True):
                     self.check_service(service_name)
+                    checked += 1
             
             self._log_event("Verificación de todos los servicios completada")
             

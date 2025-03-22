@@ -1,10 +1,10 @@
-# Monitor de Servicios SOAP
+# Monitor de Servicios SOAP y REST
 
 Una aplicación de gestión y monitoreo de servicios SOAP con interfaz gráfica, validación de respuestas, notificaciones por correo electrónico y programación de tareas.
 
 ## Características Principales
 
-- **Gestión de Servicios SOAP**: Crear, editar y gestionar múltiples servicios SOAP.
+- **Gestión de Servicios SOAP y REST **: Crear, editar y gestionar múltiples servicios SOAP y REST.
 - **Monitoreo Continuo**: Verificar periódicamente el estado de los servicios.
 - **Validación de Respuestas**: Definir patrones de validación para verificar respuestas.
 - **Notificaciones por Email**: Envío automático de alertas ante fallos.

@@ -9,7 +9,13 @@
       "00000"
     ],
     "warning_values": [
-      "2001"
+      "2001",
+      "2002"
+    ],
+    "failed_values": [
+      "5000",
+      "5001",
+      "9999"
     ],
     "validation_strategy": "flexible"
   },
@@ -18,7 +24,7 @@
   "add_to_system": false,
   "status": "warning",
   "created_at": "2025-03-21T01:50:28.758393",
-  "last_checked": "2025-03-21T11:34:01.118481",
+  "last_checked": "2025-03-22T01:27:18.019424",
   "last_response": {
     "response": {
       "soapenv:Envelope": {
@@ -50,5 +56,5 @@
     },
     "validation_message": "Respuesta con código de advertencia: 2001"
   },
-  "updated_at": "2025-03-21T11:34:01.118481"
+  "updated_at": "2025-03-22T01:27:18.019424"
 }
