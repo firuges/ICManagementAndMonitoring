@@ -7,7 +7,7 @@
   "monitor_interval": 15,
   "monitor_enabled": true,
   "add_to_system": false,
-  "status": "active",
+  "status": "ok",
   "url": "https://localhost:5005/api/sitesCustom/CheckSiteStatus",
   "method": "POST",
   "headers": {
@@ -21,7 +21,7 @@
     "SiteName": "booster036"
   },
   "created_at": "2025-03-22T00:44:09.514710",
-  "last_checked": "2025-03-22T01:27:10.060081",
+  "last_checked": "2025-03-22T04:09:58.075450",
   "last_response": {
     "response": {
       "estadoRespuesta": "OK",
@@ -33,5 +33,5 @@
       }
     }
   },
-  "updated_at": "2025-03-22T03:23:17.714721"
+  "updated_at": "2025-03-22T04:09:58.075450"
 }

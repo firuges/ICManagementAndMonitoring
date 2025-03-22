@@ -437,9 +437,7 @@ class RequestForm(QWidget):
     def _edit_headers_dialog(self):
         """Abre un diálogo para editar los headers HTTP"""
         dialog = QDialog(self)
-        dialog.setWindowTitle("Editar Headers HTTP")
-        dialog.setMinimumWidth(600)
-        dialog.setMinimumHeight(400)
+        self._style_dialog(dialog, "Editar Headers HTTP", 600, 400)
         
         layout = QVBoxLayout()
         dialog.setLayout(layout)
@@ -563,10 +561,7 @@ class RequestForm(QWidget):
     def _edit_params_dialog(self):
         """Abre un diálogo para editar los parámetros de query"""
         dialog = QDialog(self)
-        dialog.setWindowTitle("Editar Query Parameters")
-        dialog.setMinimumWidth(600)
-        dialog.setMinimumHeight(400)
-        
+        self._style_dialog(dialog, "Editar Query Parameters", 600, 400)
         layout = QVBoxLayout()
         dialog.setLayout(layout)
         
@@ -651,9 +646,7 @@ class RequestForm(QWidget):
     def _edit_json_dialog(self):
         """Abre un diálogo para editar el JSON del body"""
         dialog = QDialog(self)
-        dialog.setWindowTitle("Editar Body JSON")
-        dialog.setMinimumWidth(800)
-        dialog.setMinimumHeight(600)
+        self._style_dialog(dialog, "Editar Body JSON", 800, 600)
         
         layout = QVBoxLayout()
         dialog.setLayout(layout)
@@ -1528,8 +1521,7 @@ class RequestForm(QWidget):
         
         # Crear diálogo personalizado
         dialog = QDialog(self)
-        dialog.setWindowTitle("Respuesta del Servicio SOAP")
-        dialog.resize(800, 600)  # Tamaño más amplio para visualizar mejor la respuesta
+        self._style_dialog(dialog, "Respuesta del Servicio SOAP", 800, 600)
         
         layout = QVBoxLayout()
         dialog.setLayout(layout)
@@ -1582,3 +1574,56 @@ class RequestForm(QWidget):
         
         # Mostrar diálogo
         dialog.exec_()
+        
+    def _style_dialog(self, dialog, title="Información", width=600, height=400):
+        """Aplica estilos consistentes a un diálogo"""
+        dialog.setWindowTitle(title)
+        dialog.setMinimumSize(width, height)
+        
+        # Aplicar estilos CSS
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #f5f5f7;
+                border: 1px solid #dcdcdc;
+            }
+            QLabel {
+                font-size: 12px;
+                color: #333333;
+            }
+            QLabel[title="true"] {
+                font-size: 14px;
+                font-weight: bold;
+                color: #2d2d2d;
+                padding: 5px 0;
+            }
+            QPushButton {
+                background-color: #4a86e8;
+                color: white;
+                border: none;
+                padding: 6px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3a76d8;
+            }
+            QPushButton:pressed {
+                background-color: #2a66c8;
+            }
+            QPushButton[secondary="true"] {
+                background-color: #e0e0e0;
+                color: #333333;
+            }
+            QPushButton[secondary="true"]:hover {
+                background-color: #d0d0d0;
+            }
+            QTextEdit, QTextBrowser {
+                border: 1px solid #cccccc;
+                border-radius: 3px;
+                background-color: white;
+                font-family: "Courier New";
+                padding: 5px;
+            }
+        """)
+        
+        return dialog

@@ -87,11 +87,54 @@ class MainWindow(QMainWindow):
     
     def _create_menu(self):
         """Crea la barra de menú"""
+        self.menuBar().setStyleSheet("""
+            QMenuBar {
+                background-color: #f0f0f2;
+                border-bottom: 1px solid #d8d8d8;
+                padding: 2px;
+            }
+            QMenuBar::item {
+                spacing: 5px;
+                padding: 5px 15px;
+                background: transparent;
+                border-radius: 4px;
+            }
+            QMenuBar::item:selected {
+                background: #e0e0e5;
+            }
+            QMenuBar::item:pressed {
+                background: #d0d0d5;
+            }
+            QMenu {
+                background-color: #ffffff;
+                border: 1px solid #c0c0c0;
+                border-radius: 3px;
+                padding: 5px;
+            }
+            QMenu::item {
+                padding: 5px 25px 5px 30px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #e8f0ff;
+                color: #000000;
+            }
+            QMenu::separator {
+                height: 1px;
+                background: #d0d0d0;
+                margin: 5px 15px;
+            }
+            QMenu::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        
         # Menú Archivo
         file_menu = self.menuBar().addMenu("&Archivo")
         
         # Acción Nuevo Request
-        new_action = QAction("&Nuevo Request", self)
+        new_action = QAction(QIcon("icons/new.png"), "&Nuevo Request", self)
         new_action.setShortcut("Ctrl+N")
         new_action.triggered.connect(self._new_request)
         file_menu.addAction(new_action)
