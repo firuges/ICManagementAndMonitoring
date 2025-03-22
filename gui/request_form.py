@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QTextEdit, QPushButton, QComboBox, QSpinBox, QCheckBox, QGroupBox,
     QMessageBox, QSplitter, QListWidget, QListWidgetItem, QTabWidget,
     QTableWidgetItem, QHeaderView,QFileDialog, QDialog, QApplication,
-    QStackedWidget, QTableWidget, QTextBrowser,QMenu, QDialogButtonBox
+    QStackedWidget, QTableWidget, QTextBrowser,QMenu, QDialogButtonBox, QGridLayout
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QRegExp
 from PyQt5.QtGui import QRegExpValidator, QFont
@@ -74,25 +74,72 @@ class RequestForm(QWidget):
             QGroupBox {
                 font-weight: bold;
                 border: 1px solid #cccccc;
-                border-radius: 4px;
-                margin-top: 8px;
-                padding-top: 10px;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 10px;
-                padding: 0 3px;
+                padding: 0 5px;
+                background-color: #f9f9f9;
             }
             QPushButton {
-                min-height: 24px;
-                border-radius: 3px;
+                background-color: #4a86e8;
+                color: white;
+                border: none;
+                padding: 6px 10px;
+                border-radius: 4px;
+                min-height: 25px;
+            }
+            QPushButton:hover {
+                background-color: #3a76d8;
+            }
+            QPushButton:pressed {
+                background-color: #2a66c8;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #888888;
+            }
+            QTableWidget {
+                gridline-color: #e0e0e0;
+                selection-background-color: #e8f0ff;
+                selection-color: black;
+            }
+            QHeaderView::section {
+                background-color: #f0f0f2;
+                padding: 5px;
+                border: 1px solid #d0d0d0;
+                font-weight: bold;
             }
             QTextBrowser, QTextEdit {
                 border: 1px solid #cccccc;
-                border-radius: 2px;
+                border-radius: 3px;
+                background-color: white;
+                padding: 4px;
+            }
+            QComboBox {
+                padding: 5px;
+                border: 1px solid #cccccc;
+                border-radius: 3px;
+                min-height: 25px;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left: 1px solid #cccccc;
+            }
+            QLineEdit, QSpinBox {
+                border: 1px solid #cccccc;
+                border-radius: 3px;
+                padding: 4px;
+                min-height: 20px;
             }
         """
         self.setStyleSheet(style)
+        
         # Sección izquierda (lista de requests)
         left_panel = QWidget()
         left_layout = QVBoxLayout()
@@ -119,31 +166,50 @@ class RequestForm(QWidget):
         
         # Sección derecha (formulario)
         right_panel = QWidget()
-        form_layout = QFormLayout()
+        form_layout = QVBoxLayout()  # Cambiado de QFormLayout a QVBoxLayout
         right_panel.setLayout(form_layout)
         
-        # Nombre del Request
+        # Contenedor para los campos básicos en dos columnas
+        basic_info_group = QGroupBox("Información del Servicio")
+        basic_info_layout = QHBoxLayout()
+        basic_info_group.setLayout(basic_info_layout)
+        
+        # Columna izquierda de información básica
+        left_column = QFormLayout()
+        left_column.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        
+        # Campos para la columna izquierda
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Nombre descriptivo del servicio")
-        form_layout.addRow("Nombre:", self.name_input)
+        left_column.addRow("Nombre:", self.name_input)
         
-        # Descripción
         self.description_input = QTextEdit()
-        self.description_input.setMaximumHeight(100)
+        self.description_input.setMaximumHeight(60)
         self.description_input.setPlaceholderText("Descripción del propósito del servicio")
-        form_layout.addRow("Descripción:", self.description_input)
+        left_column.addRow("Descripción:", self.description_input)
         
-        #Grupos
+        # Columna derecha de información básica
+        right_column = QFormLayout()
+        right_column.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        
+        # Campos para la columna derecha
         self.group_input = QComboBox()
         self.group_input.setEditable(True)  # Permitir ingresar grupos personalizados
-        self.group_input.addItems(["General", "Financiero", "Clientes", "Productos", "Seguridad", "Monitoreo"])
-        form_layout.addRow("Grupo:", self.group_input)
+        self.group_input.addItems(["General", "Financiero", "Clientes", "Productos", "Seguridad", "Monitoreo", "Soap Caja Social"])
+        right_column.addRow("Grupo:", self.group_input)
         
         # Tipo de servicio (SOAP/REST)
         self.service_type = QComboBox()
         self.service_type.addItems(["SOAP", "REST"])
         self.service_type.currentIndexChanged.connect(self._on_service_type_changed)
-        form_layout.addRow("Tipo de servicio:", self.service_type)
+        right_column.addRow("Tipo de servicio:", self.service_type)
+        
+        # Añadir las columnas al layout principal
+        basic_info_layout.addLayout(left_column, 1)
+        basic_info_layout.addLayout(right_column, 1)
+        
+        # Añadir el groupbox a la sección principal
+        form_layout.addWidget(basic_info_group)
         
         # Contenedor para campos específicos de cada tipo
         self.type_specific_container = QStackedWidget()
@@ -197,140 +263,182 @@ class RequestForm(QWidget):
         # Añadir tabs a layout de SOAP
         soap_layout.addWidget(soap_tabs)
         
-        # ---------- CONTENEDOR PARA REST ----------
+        # ---------- CONTENEDOR PARA REST MEJORADO ----------
         self.rest_widget = QWidget()
         rest_main_layout = QVBoxLayout()
         self.rest_widget.setLayout(rest_main_layout)
-
-        # Sección superior (URL y método)
-        top_section = QFormLayout()
-
+        
+        # Grupo de configuración REST con dos columnas
+        rest_config_group = QGroupBox("Configuración REST")
+        rest_config_layout = QHBoxLayout()
+        rest_config_group.setLayout(rest_config_layout)
+        
+        # Columna izquierda para URL y método
+        rest_left_column = QFormLayout()
+        
         # URL Base (para REST)
         self.rest_url_input = QLineEdit()
         self.rest_url_input.setPlaceholderText("URL del endpoint (ej: https://api.ejemplo.com/v1/recurso)")
-        top_section.addRow("URL:", self.rest_url_input)
-
+        rest_left_column.addRow("URL:", self.rest_url_input)
+        
+        # Columna derecha para método HTTP
+        rest_right_column = QFormLayout()
+        
         # Método HTTP
         self.rest_method = QComboBox()
         self.rest_method.addItems(["GET", "POST", "PUT", "DELETE", "PATCH"])
-        top_section.addRow("Método HTTP:", self.rest_method)
+        rest_right_column.addRow("Método HTTP:", self.rest_method)
+        
+        # Añadir columnas al grupo de configuración
+        rest_config_layout.addLayout(rest_left_column, 2)  # 2/3 del espacio para URL
+        rest_config_layout.addLayout(rest_right_column, 1)  # 1/3 del espacio para método
+        
+        # Añadir grupo de configuración al layout principal
+        rest_main_layout.addWidget(rest_config_group)
+        
+        # Sección mejorada de Headers y Parameters
+        headers_params_group = QGroupBox("Headers y Parameters")
+        headers_params_layout = QHBoxLayout()  # Cambiado a horizontal para mostrar en dos columnas
+        headers_params_group.setLayout(headers_params_layout)
 
-        # Añadir sección superior
-        rest_main_layout.addLayout(top_section)
+        # Panel de Headers con tabla
+        headers_container = QVBoxLayout()
+        headers_label = QLabel("<b>Headers</b>")
+        headers_container.addWidget(headers_label)
 
-        # Sección de dos columnas para el contenido principal
-        two_columns_widget = QWidget()
-        two_columns_layout = QHBoxLayout(two_columns_widget)
-        two_columns_layout.setContentsMargins(0, 0, 0, 0)
+        # Tabla para Headers
+        self.headers_table = QTableWidget(0, 2)
+        self.headers_table.setHorizontalHeaderLabels(["Nombre", "Valor"])
+        self.headers_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.headers_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.headers_table.setMinimumHeight(120)
+        self.headers_table.setAlternatingRowColors(True)
+        headers_container.addWidget(self.headers_table)
 
-        # Columna izquierda
-        left_column = QVBoxLayout()
-
-        # Headers
-        headers_group = QGroupBox("Headers")
-        headers_layout = QVBoxLayout()
-        headers_group.setLayout(headers_layout)
-        headers_group.setStyleSheet("QGroupBox { font-weight: bold; }")
-
-        self.headers_list = QTextBrowser()
-        self.headers_list.setMaximumHeight(100)
-        self.headers_list.setPlaceholderText("No hay headers configurados")
-        headers_layout.addWidget(self.headers_list)
-
-        headers_buttons = QHBoxLayout()
+        # Botón para editar headers
+        headers_btn_layout = QHBoxLayout()
+        headers_btn_layout.addStretch()
         self.btn_edit_headers = QPushButton("Editar Headers")
         self.btn_edit_headers.clicked.connect(self._edit_headers_dialog)
-        headers_buttons.addWidget(self.btn_edit_headers)
-        headers_layout.addLayout(headers_buttons)
-        left_column.addWidget(headers_group)
+        self.btn_edit_headers.setMaximumWidth(120)
+        headers_btn_layout.addWidget(self.btn_edit_headers)
+        headers_container.addLayout(headers_btn_layout)
 
-        # Query Parameters
-        params_group = QGroupBox("Query Parameters")
-        params_layout = QVBoxLayout()
-        params_group.setLayout(params_layout)
+        # Panel de Query Parameters con tabla
+        params_container = QVBoxLayout()
+        params_label = QLabel("<b>Query Parameters</b>")
+        params_container.addWidget(params_label)
 
-        self.params_list = QTextBrowser()
-        self.params_list.setMaximumHeight(100)
-        self.params_list.setPlaceholderText("No hay parámetros configurados")
-        params_layout.addWidget(self.params_list)
+        # Tabla para Parameters
+        self.params_table = QTableWidget(0, 2)
+        self.params_table.setHorizontalHeaderLabels(["Nombre", "Valor"])
+        self.params_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.params_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.params_table.setMinimumHeight(120)
+        self.params_table.setAlternatingRowColors(True)
+        params_container.addWidget(self.params_table)
 
-        params_buttons = QHBoxLayout()
+        # Botón para editar parámetros
+        params_btn_layout = QHBoxLayout()
+        params_btn_layout.addStretch()
         self.btn_edit_params = QPushButton("Editar Parámetros")
         self.btn_edit_params.clicked.connect(self._edit_params_dialog)
-        params_buttons.addWidget(self.btn_edit_params)
-        params_layout.addLayout(params_buttons)
-        left_column.addWidget(params_group)
+        self.btn_edit_params.setMaximumWidth(120)
+        params_btn_layout.addWidget(self.btn_edit_params)
+        params_container.addLayout(params_btn_layout)
 
-        # Columna derecha
-        right_column = QVBoxLayout()
+        # Añadir ambos contenedores al layout principal de Headers y Parameters
+        headers_params_layout.addLayout(headers_container)
+        headers_params_layout.addLayout(params_container)
 
-        # Body JSON
+        # Añadir el grupo al layout principal de REST
+        rest_main_layout.addWidget(headers_params_group)
+        
+        # Sección de Body JSON
         json_group = QGroupBox("Body JSON")
         json_layout = QVBoxLayout()
         json_group.setLayout(json_layout)
-
+        
         self.json_preview = QTextBrowser()
         self.json_preview.setFont(QFont("Courier New", 10))
-        self.json_preview.setMinimumHeight(220)  # Hacer más alto para equilibrar con columna izquierda
+        self.json_preview.setMinimumHeight(150)
         self.json_preview.setPlaceholderText("No hay JSON configurado")
         json_layout.addWidget(self.json_preview)
-
-        json_buttons = QHBoxLayout()
+        
+        json_btn_layout = QHBoxLayout()
+        json_btn_layout.addStretch()
         self.btn_edit_json = QPushButton("Editar JSON")
         self.btn_edit_json.clicked.connect(self._edit_json_dialog)
-        json_buttons.addWidget(self.btn_edit_json)
-        json_layout.addLayout(json_buttons)
-        right_column.addWidget(json_group)
-
-        # Añadir columnas al layout principal
-        two_columns_layout.addLayout(left_column)
-        two_columns_layout.addLayout(right_column)
-        rest_main_layout.addWidget(two_columns_widget)
-
-        # Botón para probar REST en sección inferior
-        test_section = QHBoxLayout()
-        test_section.addStretch()
+        self.btn_edit_json.setMaximumWidth(120)
+        json_btn_layout.addWidget(self.btn_edit_json)
+        json_layout.addLayout(json_btn_layout)
+        
+        # Añadir grupo de JSON al layout principal
+        rest_main_layout.addWidget(json_group)
+        
+        # Botón para probar REST
+        test_layout = QHBoxLayout()
+        test_layout.addStretch()
         self.btn_test_rest = QPushButton("Probar REST")
         self.btn_test_rest.clicked.connect(self._test_rest_request)
         self.btn_test_rest.setMinimumWidth(120)
-        test_section.addWidget(self.btn_test_rest)
-        rest_main_layout.addLayout(test_section)
-
-        # Añadir al contenedor principal
+        test_layout.addWidget(self.btn_test_rest)
+        
+        # Añadir botón de prueba al layout principal
+        rest_main_layout.addLayout(test_layout)
+        
+        # Añadir al contenedor de tipos específicos
         self.type_specific_container.addWidget(self.soap_widget)
         self.type_specific_container.addWidget(self.rest_widget)
-        form_layout.addRow(self.type_specific_container)
         
-        # Tab para patrones de validación (común para ambos tipos)
-        validation_tab = QWidget()
-        validation_layout = QVBoxLayout()
-        validation_tab.setLayout(validation_layout)
+        # Añadir el contenedor al layout principal
+        form_layout.addWidget(self.type_specific_container)
+        
+        # Sección de validación en dos columnas
+        validation_group = QGroupBox("Validación de Respuestas")
+        validation_layout = QHBoxLayout()  # Cambiado a horizontal para las dos columnas
+        validation_group.setLayout(validation_layout)
 
-        # Primera fila: Título y explicación
-        validation_header = QHBoxLayout()
-        validation_header.addWidget(QLabel("<b>Patrones de Validación:</b>"))
-        validation_layout.addLayout(validation_header)
+        # Columna izquierda: Editor de patrones
+        validation_left = QVBoxLayout()
 
-        # Área de texto para patrones
+        # Título y botón de ayuda
+        header_layout = QHBoxLayout()
+        header_layout.addWidget(QLabel("<b>Patrones de Validación:</b>"))
+
+        # Botón de ayuda
+        help_btn = QPushButton("?")
+        help_btn.setToolTip("Mostrar ayuda sobre patrones de validación")
+        help_btn.setMaximumWidth(25)
+        help_btn.setMaximumHeight(25)
+        help_btn.setStyleSheet("""
+            QPushButton {
+                border-radius: 12px;
+                background-color: #4a86e8;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3a76d8;
+            }
+        """)
+        help_btn.clicked.connect(self._show_validation_help)
+        header_layout.addStretch()
+        header_layout.addWidget(help_btn)
+        validation_left.addLayout(header_layout)
+
+        # Editor de patrones
         self.validation_pattern_input = QTextEdit()
         self.validation_pattern_input.setPlaceholderText('{\n  "success_field": "codMensaje",\n  "success_values": ["00000"],\n  "expected_fields": {\n    "campo1": "valor_esperado",\n    "campo2": null\n  }\n}')
         self.validation_pattern_input.setFont(QFont("Courier New", 10))
-        validation_layout.addWidget(self.validation_pattern_input)
+        validation_left.addWidget(self.validation_pattern_input)
 
-        # Explicación y ejemplos organizados en forma de tabla
-        explanation = QLabel(
-            "<p><b>Formato:</b> JSON con campos esperados en la respuesta.</p>"
-            "<table border='0' style='margin-left: 10px;'>"
-            "<tr><td>• Si el valor es <code>null</code>:</td><td>Solo se valida que el campo exista.</td></tr>"
-            "<tr><td>• Si se especifica un valor:</td><td>Se valida que coincida exactamente.</td></tr>"
-            "<tr><td>• Campos anidados:</td><td>Usar notación con punto (ej: <code>cabecera.codMensaje</code>)</td></tr>"
-            "</table>"
-        )
-        explanation.setWordWrap(True)
-        validation_layout.addWidget(explanation)
+        # Columna derecha: Ejemplos y opciones
+        validation_right = QVBoxLayout()
 
-        # Botones de ayuda y ejemplos
-        validation_help = QHBoxLayout()
+        # Selector de ejemplos
+        validation_right.addWidget(QLabel("<b>Ejemplos Predefinidos:</b>"))
+
         templates_combo = QComboBox()
         templates_combo.addItems([
             "Seleccione un ejemplo...",
@@ -339,54 +447,73 @@ class RequestForm(QWidget):
             "Verificación de campos",
             "Respuesta REST estándar"
         ])
-        validation_help.addWidget(templates_combo)
+        validation_right.addWidget(templates_combo)
 
-        apply_template_btn = QPushButton("Aplicar")
+        # Botón de aplicar
+        apply_btn_layout = QHBoxLayout()
+        apply_btn_layout.addStretch()
+        apply_template_btn = QPushButton("Aplicar Ejemplo")
         apply_template_btn.clicked.connect(lambda: self._apply_validation_template(templates_combo.currentText()))
-        validation_help.addWidget(apply_template_btn)
-        validation_layout.addLayout(validation_help)
+        apply_template_btn.setMaximumWidth(150)
+        apply_btn_layout.addWidget(apply_template_btn)
+        validation_right.addLayout(apply_btn_layout)
 
-        # Agregar tab al contenedor de pestañas
-        validation_tabs = QTabWidget()
-        validation_tabs.addTab(validation_tab, "Validación")
-        form_layout.addRow(validation_tabs)
+        # Añadir espacio expandible al final
+        validation_right.addStretch()
+
+        # Añadir ambas columnas al layout principal de validación
+        validation_layout.addLayout(validation_left, 2)  # Proporción 2 para el editor
+        validation_layout.addLayout(validation_right, 1)  # Proporción 1 para la explicación
+
+        # Añadir grupo de validación al layout principal
+        form_layout.addWidget(validation_group)
         
-        # Opciones de monitoreo
+        # Opciones de monitoreo en diseño de grid más eficiente
         monitoring_group = QGroupBox("Opciones de Monitoreo")
-        monitoring_layout = QFormLayout()
+        monitoring_layout = QGridLayout()
         monitoring_group.setLayout(monitoring_layout)
-        
-        # Intervalo de verificación
+
+        # Primera fila: Intervalo y verificación
+        monitoring_layout.addWidget(QLabel("Intervalo (minutos):"), 0, 0)
         self.monitor_interval = QSpinBox()
         self.monitor_interval.setMinimum(1)
-        self.monitor_interval.setMaximum(1440)  # 24 horas en minutos
-        self.monitor_interval.setValue(15)  # 15 minutos por defecto
-        monitoring_layout.addRow("Intervalo (minutos):", self.monitor_interval)
-        
-        # Activar monitoreo
+        self.monitor_interval.setMaximum(1440)
+        self.monitor_interval.setValue(15)
+        monitoring_layout.addWidget(self.monitor_interval, 0, 1)
+
+        # Botón de verificación a la derecha
+        verify_task_btn = QPushButton("Verificar Estado")
+        verify_task_btn.clicked.connect(lambda: self._check_task_status(self.name_input.text().strip()))
+        monitoring_layout.addWidget(verify_task_btn, 0, 2, 1, 2)  # Extender a 2 columnas
+
+        # Segunda fila: Checkboxes
         self.monitor_enabled = QCheckBox("Activar monitoreo automático")
         self.monitor_enabled.setChecked(True)
-        monitoring_layout.addRow("", self.monitor_enabled)
-        
-        # Añadir al sistema
+        monitoring_layout.addWidget(self.monitor_enabled, 1, 0, 1, 2)
+
         self.add_to_system = QCheckBox("Añadir al programador de tareas del sistema")
-        monitoring_layout.addRow("", self.add_to_system)
+        monitoring_layout.addWidget(self.add_to_system, 1, 2, 1, 2)
         
-        form_layout.addRow(monitoring_group)
+        # Añadir grupo de monitoreo al layout principal
+        form_layout.addWidget(monitoring_group)
         
         # Botones de acción
         buttons_layout = QHBoxLayout()
+        buttons_layout.addStretch()
         
         self.btn_clear = QPushButton("Limpiar")
         self.btn_clear.clicked.connect(self.clear_form)
+        self.btn_clear.setMinimumWidth(100)
         buttons_layout.addWidget(self.btn_clear)
         
         self.btn_save = QPushButton("Guardar")
         self.btn_save.clicked.connect(self._save_request)
         self.btn_save.setDefault(True)
+        self.btn_save.setMinimumWidth(100)
         buttons_layout.addWidget(self.btn_save)
         
-        form_layout.addRow(buttons_layout)
+        # Añadir botones al layout principal
+        form_layout.addLayout(buttons_layout)
         
         # Crear un splitter para poder redimensionar paneles
         splitter = QSplitter(Qt.Horizontal)
@@ -396,6 +523,99 @@ class RequestForm(QWidget):
         
         main_layout.addWidget(splitter)
     
+    def _show_validation_help(self):
+        """Muestra ayuda sobre los patrones de validación en un diálogo modal"""
+        help_dialog = QDialog(self)
+        help_dialog.setWindowTitle("Ayuda de Validación")
+        help_dialog.setMinimumSize(500, 400)
+        
+        layout = QVBoxLayout()
+        help_dialog.setLayout(layout)
+        
+        # Contenido de ayuda con estilos
+        help_text = QTextBrowser()
+        help_text.setHtml("""
+        <h3>Formato de Patrones de Validación</h3>
+        <p>Los patrones de validación utilizan formato JSON para definir cómo se validan las respuestas:</p>
+        
+        <h4>Campos Principales:</h4>
+        <ul>
+            <li><b>success_field</b>: Campo que indica éxito/error (ej: "estadoRespuesta")</li>
+            <li><b>success_values</b>: Lista de valores que indican éxito (ej: ["OK", "SUCCESS"])</li>
+            <li><b>warning_values</b>: Lista de valores que se tratan como advertencia (ej: ["2001", "2002"])</li>
+            <li><b>expected_fields</b>: Campos adicionales que deben existir en la respuesta</li>
+        </ul>
+        
+        <h4>Reglas de Validación:</h4>
+        <ul>
+            <li>Si el valor es <code>null</code>: Solo se valida que el campo exista</li>
+            <li>Si se especifica un valor: Se valida que coincida exactamente</li>
+            <li>Campos anidados: Usar notación con punto (ej: <code>cabecera.codMensaje</code>)</li>
+        </ul>
+        
+        <h4>Ejemplo Completo:</h4>
+        <pre>
+    {
+    "success_field": "estadoRespuesta",
+    "success_values": ["OK"],
+    "warning_values": ["2001", "2002"],
+    "expected_fields": {
+        "datos": null,
+        "cabecera.codMensaje": "0"
+    }
+    }
+        </pre>
+        """)
+        
+        layout.addWidget(help_text)
+        
+        # Botón de cerrar
+        close_btn = QPushButton("Cerrar")
+        close_btn.clicked.connect(help_dialog.accept)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+        
+        help_dialog.exec_()
+    
+    # Añadir un nuevo método en request_form.py para verificar estado de tareas
+    def _check_task_status(self, service_name: str) -> None:
+        """Verifica y muestra el estado de la tarea programada en el sistema"""
+        try:
+            status = self.scheduler.get_task_status(service_name)
+            
+            message = f"Estado de la tarea: {service_name}\n\n"
+            
+            if status["exists"]:
+                message += "✅ La tarea existe en el sistema\n"
+                if status.get("interval"):
+                    message += f"⏱️ Intervalo: {status['interval']}\n"
+            else:
+                message += "❌ La tarea NO existe en el sistema\n"
+            
+            if status.get("exists_internal", False):
+                message += "✅ La tarea existe en el programador interno\n"
+                if status.get("next_run_internal"):
+                    message += f"⏱️ Próxima ejecución: {status['next_run_internal']}\n"
+            
+            # Mostrar detalles específicos del sistema
+            if sys.platform.startswith('win'):
+                message += "\nDetalles en Windows Task Scheduler:\n"
+                if status.get("schedule_type"):
+                    message += f"Tipo: {status['schedule_type']}\n"
+            else:
+                message += "\nDetalles en crontab:\n"
+                if status.get("cron_schedule"):
+                    message += f"Programación: {status['cron_schedule']}\n"
+            
+            # Mostrar mensaje
+            QMessageBox.information(self, "Estado de la Tarea", message)
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"No se pudo verificar el estado de la tarea: {str(e)}")
+            
     def _apply_validation_template(self, template_name):
         """Aplica una plantilla de validación predefinida"""
         templates = {
@@ -511,9 +731,41 @@ class RequestForm(QWidget):
                 if name_item and value_item and name_item.text().strip():
                     headers[name_item.text().strip()] = value_item.text().strip()
             
-            # Actualizar la vista previa
-            self._update_headers_preview(headers)
+            # Actualizar la tabla
+            self._update_headers_table(headers)
+    
+    def _update_headers_table(self, headers):
+        """Actualiza la tabla de headers con los datos proporcionados"""
+        self.headers = headers  # Guardar internamente
+        
+        # Limpiar tabla
+        self.headers_table.setRowCount(0)
+        
+        if not headers:
+            return
+        
+        # Añadir headers a la tabla
+        for row, (key, value) in enumerate(headers.items()):
+            self.headers_table.insertRow(row)
+            self.headers_table.setItem(row, 0, QTableWidgetItem(key))
+            self.headers_table.setItem(row, 1, QTableWidgetItem(value))
 
+    def _update_params_table(self, params):
+        """Actualiza la tabla de parámetros con los datos proporcionados"""
+        self.params = params  # Guardar internamente
+        
+        # Limpiar tabla
+        self.params_table.setRowCount(0)
+        
+        if not params:
+            return
+        
+        # Añadir parámetros a la tabla
+        for row, (key, value) in enumerate(params.items()):
+            self.params_table.insertRow(row)
+            self.params_table.setItem(row, 0, QTableWidgetItem(key))
+            self.params_table.setItem(row, 1, QTableWidgetItem(str(value)))
+        
     def _add_preset_header(self, table, header):
         """Añade un header predefinido a la tabla"""
         for name, value in header.items():
@@ -616,8 +868,8 @@ class RequestForm(QWidget):
                 if name_item and value_item and name_item.text().strip():
                     params[name_item.text().strip()] = value_item.text().strip()
             
-            # Actualizar la vista previa
-            self._update_params_preview(params)
+            # Actualizar la tabla
+            self._update_params_table(params)
 
     def _get_current_params(self):
         """Obtiene los parámetros actuales"""
@@ -899,6 +1151,11 @@ class RequestForm(QWidget):
             QMessageBox.warning(self, "Información", "Ingrese un nombre para el request")
             return
         
+        interval = self.monitor_interval.value()
+        if interval <= 0:
+            QMessageBox.warning(self, "Información", "El intervalo de monitoreo debe ser mayor a 0 minutos")
+            return
+        
         try:
             # Procesar patrones de validación
             validation_pattern = self.validation_pattern_input.toPlainText().strip()
@@ -967,7 +1224,17 @@ class RequestForm(QWidget):
             # Guardar request
             self.persistence.save_service_request(request_data)
             
-            # En _save_request, después de guardar el request:
+            if self.monitor_enabled.isChecked():
+                # Programar la tarea si está habilitado el monitoreo
+                monitor_function = lambda: self.monitoring_panel.check_service(name) if hasattr(self, 'monitoring_panel') else None
+                try:
+                    success = self.scheduler.add_monitoring_task(name, interval, monitor_function)
+                    if success:
+                        logger.info(f"Tarea de monitoreo programada para {name} cada {interval} minutos")
+                    else:
+                        logger.warning(f"No se pudo programar la tarea de monitoreo para {name}")
+                except Exception as e:
+                    logger.error(f"Error al programar tarea: {str(e)}")
             if self.add_to_system.isChecked():
                 try:
                     # Generar o actualizar la tarea del sistema
@@ -1019,19 +1286,21 @@ class RequestForm(QWidget):
             self.request_xml_input.setText(request_data.get('request_xml', ''))
         else:  # REST
             self.rest_url_input.setText(request_data.get('url', ''))
-    
+        
             # Seleccionar método HTTP
             method_index = self.rest_method.findText(request_data.get('method', 'GET'))
             if method_index >= 0:
                 self.rest_method.setCurrentIndex(method_index)
             
-            # Guardar los datos en las propiedades y actualizar vistas previas
+            # Guardar y actualizar headers en la tabla
             self.headers = request_data.get('headers', {})
-            self._update_headers_preview(self.headers)
+            self._update_headers_table(self.headers)
             
+            # Guardar y actualizar parámetros en la tabla
             self.params = request_data.get('params', {})
-            self._update_params_preview(self.params)
+            self._update_params_table(self.params)
             
+            # Actualizar JSON
             self.json_data = request_data.get('json_data')
             self._update_json_preview(self.json_data)
         
@@ -1170,29 +1439,25 @@ class RequestForm(QWidget):
     
     
     def _initialize_rest_tables(self):
-        """Inicializa las vistas previas REST con valores predeterminados útiles"""
+        """Inicializa las tablas REST con valores predeterminados"""
         # Configurar headers predeterminados
         default_headers = {
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
         
-        # Actualizar vista previa de headers
-        self._update_headers_preview(default_headers)
-        
-        # Guardar referencia interna
-        self.headers = default_headers
+        # Actualizar tabla de headers
+        self._update_headers_table(default_headers)
         
         # Inicializar params vacíos
         self.params = {}
-        self._update_params_preview(self.params)
+        self._update_params_table(self.params)
         
         # Inicializar JSON vacío
         self.json_data = None
         self._update_json_preview(self.json_data)
         
-        # Log
-        logger.debug("Inicializadas vistas previas REST con valores predeterminados")
+        logger.debug("Inicializadas tablas REST con valores predeterminados")
     
     def _restore_service_from_backup(self, service_name: str, backup_data: Dict[str, Any]) -> bool:
         """
@@ -1627,3 +1892,60 @@ class RequestForm(QWidget):
         """)
         
         return dialog
+    
+    def _show_validation_help(self):
+        """Muestra ayuda sobre los patrones de validación en un diálogo modal"""
+        help_dialog = QDialog(self)
+        help_dialog.setWindowTitle("Ayuda de Validación")
+        help_dialog.setMinimumSize(500, 400)
+        
+        layout = QVBoxLayout()
+        help_dialog.setLayout(layout)
+        
+        # Contenido de ayuda con estilos
+        help_text = QTextBrowser()
+        help_text.setHtml("""
+        <h3>Formato de Patrones de Validación</h3>
+        <p>Los patrones de validación utilizan formato JSON para definir cómo se validan las respuestas:</p>
+        
+        <h4>Campos Principales:</h4>
+        <ul>
+            <li><b>success_field</b>: Campo que indica éxito/error (ej: "estadoRespuesta")</li>
+            <li><b>success_values</b>: Lista de valores que indican éxito (ej: ["OK", "SUCCESS"])</li>
+            <li><b>warning_values</b>: Lista de valores que se tratan como advertencia (ej: ["2001", "2002"])</li>
+            <li><b>expected_fields</b>: Campos adicionales que deben existir en la respuesta</li>
+        </ul>
+        
+        <h4>Reglas de Validación:</h4>
+        <ul>
+            <li>Si el valor es <code>null</code>: Solo se valida que el campo exista</li>
+            <li>Si se especifica un valor: Se valida que coincida exactamente</li>
+            <li>Campos anidados: Usar notación con punto (ej: <code>cabecera.codMensaje</code>)</li>
+        </ul>
+        
+        <h4>Ejemplo Completo:</h4>
+        <pre style="background-color: #f8f8f8; padding: 10px; border-radius: 5px;">
+    {
+    "success_field": "estadoRespuesta",
+    "success_values": ["OK"],
+    "warning_values": ["2001", "2002"],
+    "expected_fields": {
+        "datos": null,
+        "cabecera.codMensaje": "0"
+    }
+    }
+        </pre>
+        """)
+        
+        layout.addWidget(help_text)
+        
+        # Botón de cerrar
+        close_btn = QPushButton("Cerrar")
+        close_btn.clicked.connect(help_dialog.accept)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+        
+        help_dialog.exec_()

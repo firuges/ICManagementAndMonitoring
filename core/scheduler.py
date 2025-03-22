@@ -37,6 +37,11 @@ class SOAPMonitorScheduler:
         Returns:
             bool: True si se agregó correctamente
         """
+        
+        if interval_minutes <= 0:
+            logger.error(f"Intervalo inválido para {request_name}: {interval_minutes}")
+            return False
+            
         task_id = f"monitor_{request_name}"
         
         # Cancelar la tarea anterior si existe
@@ -209,6 +214,10 @@ class SOAPMonitorScheduler:
         Returns:
             bool: True si se generó correctamente
         """
+        if not task_name or interval_minutes <= 0:
+            logger.error(f"Parámetros inválidos para tarea: {task_name}, intervalo: {interval_minutes}")
+            return False
+            
         monitor_script = self.get_monitor_script_path()
         
         if not os.path.exists(monitor_script):
@@ -325,3 +334,78 @@ class SOAPMonitorScheduler:
         except Exception as e:
             logger.error(f"Error inesperado al eliminar tarea de sistema: {str(e)}")
             return False
+        
+    # Añadir al final de scheduler.py
+    def get_task_status(self, task_name: str) -> Dict[str, Any]:
+        """
+        Obtiene el estado de una tarea en el programador del sistema.
+        
+        Args:
+            task_name (str): Nombre de la tarea
+            
+        Returns:
+            Dict[str, Any]: Información sobre el estado de la tarea
+        """
+        status = {
+            "exists": False,
+            "interval": None,
+            "next_run": None,
+            "platform": sys.platform
+        }
+        
+        try:
+            # Verificar si existe en el programador interno
+            for task_id, job in self.task_map.items():
+                if task_id == f"monitor_{task_name}":
+                    status["exists_internal"] = True
+                    status["interval_internal"] = job.interval
+                    status["next_run_internal"] = job.next_run
+                    break
+            
+            # Verificar en el sistema
+            status["exists"] = self.check_system_task_exists(task_name)
+            
+            # Determinar sistema operativo
+            if sys.platform.startswith('win'):
+                # Windows - usar schtasks para obtener más información
+                result = subprocess.run(
+                    f'schtasks /query /tn "SOAPMonitor_{task_name}" /fo list',
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                if result.returncode == 0:
+                    # Extraer intervalo
+                    for line in result.stdout.splitlines():
+                        if "ScheduleType:" in line:
+                            status["schedule_type"] = line.split(":", 1)[1].strip()
+                        if "Repeat: Every:" in line:
+                            status["interval"] = line.split(":", 1)[1].strip()
+            else:
+                # Linux/Unix - usar crontab
+                current_crontab = subprocess.check_output("crontab -l 2>/dev/null || echo ''", shell=True, text=True)
+                task_marker = f"# SOAPMonitor_{task_name}"
+                
+                if task_marker in current_crontab:
+                    lines = current_crontab.splitlines()
+                    i = 0
+                    while i < len(lines):
+                        if lines[i] == task_marker and i + 1 < len(lines):
+                            # La línea siguiente contiene la programación cron
+                            cron_schedule = lines[i + 1]
+                            status["cron_schedule"] = cron_schedule
+                            # Intentar extraer intervalo
+                            if "*/" in cron_schedule:
+                                parts = cron_schedule.split()
+                                if len(parts) > 0 and "*/" in parts[0]:
+                                    status["interval"] = parts[0].replace("*/", "") + " minutos"
+                            break
+                        i += 1
+            
+            return status
+            
+        except Exception as e:
+            logger.error(f"Error al obtener estado de tarea: {str(e)}")
+            status["error"] = str(e)
+            return status

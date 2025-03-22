@@ -6,8 +6,8 @@
   "validation_pattern": "jsonCopiar{\n  \"success_field\": \"estadoRespuesta\",\n  \"success_values\": [\"OK\"],\n  \"warning_values\": [\"2001\", \"2002\"],\n  \"failed_values\": [\"4001\", \"4002\", \"4003\", \"4004\"],\n  \"expected_fields\": {\n    \"mensajeUsuario\": null,\n    \"codigoOperacion\": null\n  }\n}\n}",
   "monitor_interval": 15,
   "monitor_enabled": true,
-  "add_to_system": false,
-  "status": "ok",
+  "add_to_system": true,
+  "status": "active",
   "url": "https://localhost:5005/api/sitesCustom/CheckSiteStatus",
   "method": "POST",
   "headers": {
@@ -21,7 +21,7 @@
     "SiteName": "booster036"
   },
   "created_at": "2025-03-22T00:44:09.514710",
-  "last_checked": "2025-03-22T04:09:58.075450",
+  "last_checked": "2025-03-22T18:08:35.601128",
   "last_response": {
     "response": {
       "estadoRespuesta": "OK",
@@ -33,5 +33,5 @@
       }
     }
   },
-  "updated_at": "2025-03-22T04:09:58.075450"
+  "updated_at": "2025-03-22T18:11:36.493610"
 }

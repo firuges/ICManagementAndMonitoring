@@ -1,7 +1,9 @@
 import os
 import re
 import logging
+from datetime import datetime
 import json
+import sys
 from typing import Dict, Any, List
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit, 
@@ -53,6 +55,58 @@ class EmailForm(QWidget):
         main_layout = QVBoxLayout()
         self.setLayout(main_layout)
         
+         # Agregar estilos CSS consistentes con las otras interfaces
+        self.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #cccccc;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+                background-color: #f9f9f9;
+            }
+            QPushButton {
+                background-color: #4a86e8;
+                color: white;
+                border: none;
+                padding: 6px 10px;
+                border-radius: 4px;
+                min-height: 25px;
+            }
+            QPushButton:hover {
+                background-color: #3a76d8;
+            }
+            QPushButton:pressed {
+                background-color: #2a66c8;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #888888;
+            }
+            QTableWidget {
+                gridline-color: #e0e0e0;
+                selection-background-color: #e8f0ff;
+                selection-color: black;
+            }
+            QHeaderView::section {
+                background-color: #f0f0f2;
+                padding: 5px;
+                border: 1px solid #d0d0d0;
+                font-weight: bold;
+            }
+            QLineEdit, QTextEdit, QSpinBox {
+                border: 1px solid #cccccc;
+                border-radius: 3px;
+                padding: 4px;
+                min-height: 20px;
+            }
+        """)
+    
         # Grupo para configuración SMTP
         smtp_group = QGroupBox("Configuración de Servidor SMTP")
         smtp_layout = QFormLayout()
@@ -416,3 +470,5 @@ class EmailForm(QWidget):
             recipients.append(email)
         
         return recipients
+    
+    
