@@ -48,7 +48,7 @@ class SOAPClient:
         
         return self.clients_cache[wsdl_url]
     
-    def send_raw_request(self, wsdl_url: str, request_xml: str) -> Tuple[bool, Dict[str, Any]]:
+    def send_raw_request(self, wsdl_url: str, request_xml: str, timeout: int = 30, max_retries: int = 1) -> Tuple[bool, Dict[str, Any]]:
         """
         Envía un request SOAP XML directamente con manejo robusto de operaciones.
         
@@ -59,206 +59,229 @@ class SOAPClient:
         Returns:
             Tuple[bool, Dict[str, Any]]: (éxito, resultado/error)
         """
-        try:
-            # Parsear el XML para obtener el método y los parámetros
-            request_dict = xmltodict.parse(request_xml)
-            
-            # Extraer el nombre del método (primer elemento del Body)
-            envelope_key = None
-            for k in request_dict.keys():
-                if k.endswith('Envelope'):
-                    envelope_key = k
-                    break
-                    
-            if not envelope_key:
-                return False, {"error": "No se encontró el elemento Envelope en el XML SOAP"}
-                
-            envelope = request_dict[envelope_key]
-            
-            # Encontrar la clave del Body con gestión de namespaces
-            body_key = None
-            for k in envelope.keys():
-                if k.endswith('Body'):
-                    body_key = k
-                    break
-                    
-            if not body_key or not envelope[body_key]:
-                return False, {"error": "No se encontró el elemento Body en el XML SOAP"}
-                
-            body = envelope[body_key]
-            
-            # El primer elemento del Body es el método
-            if not body or len(body) == 0:
-                return False, {"error": "Body vacío en el XML SOAP"}
-                
-            # Extraer el nombre del método eliminando prefijo de namespace
-            method_full_name = list(body.keys())[0]
-            method_name = method_full_name.split(':')[-1]
-            
-            # Eliminar 'Request' del nombre del método si existe
-            if method_name.endswith('Request'):
-                method_name = method_name[:-7]  # Remover 'Request'
-                
-            logger.info(f"Método SOAP determinado: {method_name}")
-            
-            # Extraer los parámetros
-            method_params = body[method_full_name]
-            
-            # Obtener cliente
-            client = self.get_client(wsdl_url)
-            
-            # PARTE CRÍTICA: Manejo seguro de las operaciones
-            available_methods = []
+        retry_count = 0
+        while retry_count <= max_retries:
             try:
-                # Intentar obtener operaciones de manera segura
-                if hasattr(client.service, '_operations'):
-                    operations = client.service._operations
-                    # Verificar si operations es un diccionario (caso común)
-                    if isinstance(operations, dict):
-                        available_methods = list(operations.keys())
-                    # Verificar si es un objeto con atributos name
-                    elif hasattr(operations, '__iter__'):
-                        try:
-                            available_methods = [op.name for op in operations if hasattr(op, 'name')]
-                        except (AttributeError, TypeError):
-                            # Fallback si hay algún problema accediendo a 'name'
-                            available_methods = []
+                # Parsear el XML para obtener el método y los parámetros
+                request_dict = xmltodict.parse(request_xml)
                 
-                # Fallback: obtener métodos directamente de los servicios
-                if not available_methods and hasattr(client, 'wsdl'):
-                    for service in client.wsdl.services.values():
-                        for port in service.ports.values():
-                            for operation in port.binding._operations.values():
-                                available_methods.append(operation.name)
-                                
-                logger.debug(f"Métodos disponibles: {available_methods}")
-            except Exception as e:
-                logger.warning(f"No se pudieron determinar los métodos disponibles: {str(e)}")
-                available_methods = []
-            
-            # Buscar coincidencia del método
-            method_match = None
-            
-            # Comprobación exacta
-            if method_name in available_methods:
-                method_match = method_name
-            else:
-                # Búsqueda por coincidencia parcial (case insensitive)
-                for available_method in available_methods:
-                    if method_name.lower() in available_method.lower():
-                        method_match = available_method
-                        logger.info(f"Usando método por coincidencia parcial: {method_match}")
+                # Extraer el nombre del método (primer elemento del Body)
+                envelope_key = None
+                for k in request_dict.keys():
+                    if k.endswith('Envelope'):
+                        envelope_key = k
                         break
-            
-            # Si no encontramos coincidencia pero hay métodos disponibles, usar el primero
-            if not method_match and available_methods:
-                method_match = available_methods[0]
-                logger.warning(f"Usando método predeterminado: {method_match}")
-            
-            # Si no hay métodos disponibles, intentar usar el método extraído directamente
-            if not method_match:
-                method_match = method_name
-                logger.warning(f"No se encontraron métodos disponibles. Usando: {method_match}")
-            
-            # Ejecutar la llamada SOAP con manejo robusto de errores
-            try:
-                # Normalizar parámetros eliminando prefijos de namespace
-                normalized_params = self._normalize_params(method_params) if isinstance(method_params, dict) else {}
+                        
+                if not envelope_key:
+                    return False, {"error": "No se encontró el elemento Envelope en el XML SOAP"}
+                    
+                envelope = request_dict[envelope_key]
                 
-                # Intentar ejecutar el método
-                response = None
-                if hasattr(client.service, method_match):
-                    # Ejecución mediante atributo
-                    service_method = getattr(client.service, method_match)
-                    if callable(service_method):
-                        response = service_method(**normalized_params)
+                # Encontrar la clave del Body con gestión de namespaces
+                body_key = None
+                for k in envelope.keys():
+                    if k.endswith('Body'):
+                        body_key = k
+                        break
+                        
+                if not body_key or not envelope[body_key]:
+                    return False, {"error": "No se encontró el elemento Body en el XML SOAP"}
+                    
+                body = envelope[body_key]
+                
+                # El primer elemento del Body es el método
+                if not body or len(body) == 0:
+                    return False, {"error": "Body vacío en el XML SOAP"}
+                    
+                # Extraer el nombre del método eliminando prefijo de namespace
+                method_full_name = list(body.keys())[0]
+                method_name = method_full_name.split(':')[-1]
+                
+                # Eliminar 'Request' del nombre del método si existe
+                if method_name.endswith('Request'):
+                    method_name = method_name[:-7]  # Remover 'Request'
+                    
+                logger.info(f"Método SOAP determinado: {method_name}")
+                
+                # Extraer los parámetros
+                method_params = body[method_full_name]
+                
+                # Obtener cliente
+                client = self.get_client(wsdl_url)
+                
+                transport = zeep.Transport(timeout=timeout)
+                self.clients_cache[wsdl_url] = zeep.Client(wsdl=wsdl_url, transport=transport)
+                
+                # PARTE CRÍTICA: Manejo seguro de las operaciones
+                available_methods = []
+                try:
+                    # Intentar obtener operaciones de manera segura
+                    if hasattr(client.service, '_operations'):
+                        operations = client.service._operations
+                        # Verificar si operations es un diccionario (caso común)
+                        if isinstance(operations, dict):
+                            available_methods = list(operations.keys())
+                        # Verificar si es un objeto con atributos name
+                        elif hasattr(operations, '__iter__'):
+                            try:
+                                available_methods = [op.name for op in operations if hasattr(op, 'name')]
+                            except (AttributeError, TypeError):
+                                # Fallback si hay algún problema accediendo a 'name'
+                                available_methods = []
+                    
+                    # Fallback: obtener métodos directamente de los servicios
+                    if not available_methods and hasattr(client, 'wsdl'):
+                        for service in client.wsdl.services.values():
+                            for port in service.ports.values():
+                                for operation in port.binding._operations.values():
+                                    available_methods.append(operation.name)
+                                    
+                    logger.debug(f"Métodos disponibles: {available_methods}")
+                except Exception as e:
+                    logger.warning(f"No se pudieron determinar los métodos disponibles: {str(e)}")
+                    available_methods = []
+                
+                # Buscar coincidencia del método
+                method_match = None
+                
+                # Comprobación exacta
+                if method_name in available_methods:
+                    method_match = method_name
                 else:
-                    # Ejecución mediante índice
-                    try:
-                        # Configurar historial para capturar la respuesta XML
-                        history = []
-                        
-                        # Crear plugin para capturar respuesta
-                        class CapturePlugin(zeep.Plugin):
-                            def ingress(self, envelope, http_headers, operation):
-                                # Capturar respuesta XML
-                                xml_string = etree.tostring(envelope, encoding='unicode')
-                                history.append(xml_string)
-                                return envelope
-                        
-                        # Añadir plugin al cliente
-                        plugins = [CapturePlugin()]
-                        transport = client.transport
-                        transport.session.auth = None  # Evitar posibles problemas de autenticación
-                        
-                        # Ejecutar llamada con plugins
-                        response = client.service[method_name](**normalized_params, _plugins=plugins)
-                        
-                        # Procesar la respuesta con el método normal
-                        response_dict = self._zeep_object_to_dict(response)
-                        
-                        # Si la respuesta está vacía pero tenemos XML capturado, procesar el XML directamente
-                        if (not response_dict or response_dict == {}) and history:
-                            logger.info("Respuesta Zeep vacía, procesando XML directamente")
-                            xml_response = history[-1]  # Última respuesta capturada
-                            direct_response = self._extract_soap_response_xml(xml_response)
-                            
-                            # Combinar resultados
-                            result = {
-                                "method": method_name,
-                                "response": direct_response or response_dict,
-                                "status": "ok",
-                                "_raw_xml_available": bool(history)
-                            }
-                            
-                            # Guardar XML para diagnóstico
-                            self._save_debug_xml(method_name, request_xml, xml_response)
-                            
-                            return True, result
-                        else:
-                            # Respuesta normal procesada correctamente
-                            return True, {
-                                "method": method_name,
-                                "response": response_dict,
-                                "status": "ok"
-                            }
-                    except Exception as call_error:
-                        logger.error(f"Error al llamar al método {method_match}: {str(call_error)}")
-                        # Intento alternativo: enviar directamente el XML
-                        return self._send_direct_xml(wsdl_url, request_xml)
+                    # Búsqueda por coincidencia parcial (case insensitive)
+                    for available_method in available_methods:
+                        if method_name.lower() in available_method.lower():
+                            method_match = available_method
+                            logger.info(f"Usando método por coincidencia parcial: {method_match}")
+                            break
                 
-                if response is None:
-                    return False, {
-                        "error": f"No se obtuvo respuesta del método {method_match}",
-                        "status": "no_response"
+                # Si no encontramos coincidencia pero hay métodos disponibles, usar el primero
+                if not method_match and available_methods:
+                    method_match = available_methods[0]
+                    logger.warning(f"Usando método predeterminado: {method_match}")
+                
+                # Si no hay métodos disponibles, intentar usar el método extraído directamente
+                if not method_match:
+                    method_match = method_name
+                    logger.warning(f"No se encontraron métodos disponibles. Usando: {method_match}")
+                
+                # Ejecutar la llamada SOAP con manejo robusto de errores
+                try:
+                    # Normalizar parámetros eliminando prefijos de namespace
+                    normalized_params = self._normalize_params(method_params) if isinstance(method_params, dict) else {}
+                    
+                    # Intentar ejecutar el método
+                    response = None
+                    if hasattr(client.service, method_match):
+                        # Ejecución mediante atributo
+                        service_method = getattr(client.service, method_match)
+                        if callable(service_method):
+                            response = service_method(**normalized_params)
+                    else:
+                        # Ejecución mediante índice
+                        try:
+                            # Configurar historial para capturar la respuesta XML
+                            history = []
+                            
+                            # Crear plugin para capturar respuesta
+                            class CapturePlugin(zeep.Plugin):
+                                def ingress(self, envelope, http_headers, operation):
+                                    # Capturar respuesta XML
+                                    xml_string = etree.tostring(envelope, encoding='unicode')
+                                    history.append(xml_string)
+                                    return envelope
+                            
+                            # Añadir plugin al cliente
+                            plugins = [CapturePlugin()]
+                            transport = client.transport
+                            transport.session.auth = None  # Evitar posibles problemas de autenticación
+                            
+                            # Ejecutar llamada con plugins
+                            response = client.service[method_name](**normalized_params, _plugins=plugins)
+                            
+                            # Procesar la respuesta con el método normal
+                            response_dict = self._zeep_object_to_dict(response)
+                            
+                            # Si la respuesta está vacía pero tenemos XML capturado, procesar el XML directamente
+                            if (not response_dict or response_dict == {}) and history:
+                                logger.info("Respuesta Zeep vacía, procesando XML directamente")
+                                xml_response = history[-1]  # Última respuesta capturada
+                                direct_response = self._extract_soap_response_xml(xml_response)
+                                
+                                # Combinar resultados
+                                result = {
+                                    "method": method_name,
+                                    "response": direct_response or response_dict,
+                                    "status": "ok",
+                                    "_raw_xml_available": bool(history)
+                                }
+                                
+                                # Guardar XML para diagnóstico
+                                self._save_debug_xml(method_name, request_xml, xml_response)
+                                
+                                return True, result
+                            else:
+                                # Respuesta normal procesada correctamente
+                                return True, {
+                                    "method": method_name,
+                                    "response": response_dict,
+                                    "status": "ok"
+                                }
+                        except Exception as call_error:
+                            logger.error(f"Error al llamar al método {method_match}: {str(call_error)}")
+                            # Intento alternativo: enviar directamente el XML
+                            return self._send_direct_xml(wsdl_url, request_xml)
+                    
+                    if response is None:
+                        return False, {
+                            "error": f"No se obtuvo respuesta del método {method_match}",
+                            "status": "no_response"
+                        }
+                    
+                    # Convertir respuesta a diccionario
+                    response_dict = self._zeep_object_to_dict(response)
+                    
+                    return True, {
+                        "method": method_match,
+                        "response": response_dict,
+                        "status": "ok"
                     }
-                
-                # Convertir respuesta a diccionario
-                response_dict = self._zeep_object_to_dict(response)
-                
-                return True, {
-                    "method": method_match,
-                    "response": response_dict,
-                    "status": "ok"
-                }
-                
-            except zeep.exceptions.Fault as fault:
-                logger.error(f"Error SOAP Fault: {str(fault)}")
+                except zeep.exceptions.Timeout:
+                    retry_count += 1
+                    if retry_count <= max_retries:
+                        logger.warning(f"Timeout al intentar conectar con el servicio. Reintentando ({retry_count}/{max_retries})...")
+                        time.sleep(1)  # Esperar 1 segundo antes de reintentar
+                    else:
+                        logger.error(f"Error de timeout después de {max_retries} reintentos")
+                        return False, {
+                            "error": f"Timeout al intentar conectar con el servicio después de {max_retries} reintentos",
+                            "status": "timeout"
+                        }
+                except Exception as e:
+                    retry_count += 1
+                    if retry_count <= max_retries and isinstance(e, (ConnectionError, ConnectionRefusedError, ConnectionAbortedError)):
+                        logger.warning(f"Error de conexión. Reintentando ({retry_count}/{max_retries})...")
+                        time.sleep(1)  # Esperar 1 segundo antes de reintentar
+                    else:
+                        logger.error(f"Error al enviar request SOAP: {str(e)}", exc_info=True)
+                        return False, {
+                            "error": f"Error inesperado: {str(e)}",
+                            "status": "error"
+                        }
+                        
+                except zeep.exceptions.Fault as fault:
+                    logger.error(f"Error SOAP Fault: {str(fault)}")
+                    return False, {
+                        "error": f"SOAP Fault: {str(fault)}",
+                        "status": "soap_fault" 
+                    }
+                    
+            except Exception as e:
+                logger.error(f"Error al enviar request SOAP: {str(e)}", exc_info=True)
                 return False, {
-                    "error": f"SOAP Fault: {str(fault)}",
-                    "status": "soap_fault" 
+                    "error": f"Error inesperado: {str(e)}",
+                    "status": "error"
                 }
-            except Exception as call_error:
-                logger.error(f"Error al ejecutar llamada SOAP: {str(call_error)}")
-                # Intento alternativo: enviar directamente el XML como fallback
-                return self._send_direct_xml(wsdl_url, request_xml)
-                
-        except Exception as e:
-            logger.error(f"Error al enviar request SOAP: {str(e)}", exc_info=True)
-            return False, {
-                "error": f"Error inesperado: {str(e)}",
-                "status": "error"
-            }
     
     def _save_debug_xml(self, service_name: str, request_xml: str, response_xml: str) -> None:
         """

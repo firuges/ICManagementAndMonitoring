@@ -744,7 +744,7 @@ class MonitoringPanel(QWidget):
             service_data['monitor_enabled'] = not is_enabled
             
             # Guardar cambios
-            self.persistence.save_soap_request(service_data)
+            self.persistence.save_service_request(service_data)
             
             # Actualizar vista
             self.refresh_services_list()

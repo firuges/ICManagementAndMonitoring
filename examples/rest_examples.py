@@ -38,7 +38,7 @@ def crear_ejemplo_checksite():
         }
         
         # Guardar servicio
-        persistence.save_soap_request(servicio)
+        persistence.save_service_request(servicio)
         
         print("Servicio CheckSiteStatus creado correctamente")
     

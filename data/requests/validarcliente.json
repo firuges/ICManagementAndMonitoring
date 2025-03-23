@@ -7,14 +7,13 @@
   "monitor_interval": 15,
   "monitor_enabled": true,
   "add_to_system": false,
-  "status": "failed",
+  "status": "error",
   "wsdl_url": "http://192.168.64.82:8080/canales/ValidarCliente/v1?wsdl",
   "request_xml": "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:v1=\"http://xmlns.bancocajasocial.com/co/canales/schema/servicios/ValidarCliente/v1.0\" xmlns:v11=\"http://xmlns.bancocajasocial.com/co/canales/schema/servicios/CabeceraBanca/v1.0\">\n   <soapenv:Header/>\n   <soapenv:Body>\n      <v1:ValidarClienteRequest>\n         <!--Optional:-->\n         <v1:cabeceraEntrada>\n            <!--Optional:-->\n            <v11:seguridad>\n               <!--Optional:-->\n               <v11:usuario>INTERNETIBE</v11:usuario>\n            </v11:seguridad>\n            <v11:invocador>\n               <v11:canalOrigen>007</v11:canalOrigen>\n               <v11:codigoATM>00704</v11:codigoATM>\n               <v11:codigoOficina>321102</v11:codigoOficina>\n               <v11:codigoTerminal>IBE</v11:codigoTerminal>\n               <!--Optional:-->\n               <v11:componente>?</v11:componente>\n               <v11:direccionIpCliente>192.168.168.17</v11:direccionIpCliente>\n               <v11:direccionIpServidor>192.168.0.1</v11:direccionIpServidor>\n               <v11:direccionMacCliente>12.23.5.45.2</v11:direccionMacCliente>\n               <v11:direccionMacServidor>12.23.5.45.2</v11:direccionMacServidor>\n               <!--Optional:-->\n               <v11:fechaProceso>06032023</v11:fechaProceso>\n               <!--Optional:-->\n               <v11:identificadorTx>TXID_XXXXX</v11:identificadorTx>\n               <v11:llaveSesion>INTERNET_CCCC</v11:llaveSesion>\n               <!--Optional:-->\n               <v11:origen/>\n               <v11:pais>COOOO</v11:pais>\n               <!--Optional:-->\n               <v11:procesoBpmId>0</v11:procesoBpmId>\n               <v11:procesoId>0</v11:procesoId>\n               <v11:red>32</v11:red>\n               <v11:subcanal>02</v11:subcanal>\n               <v11:usuario>CC79488602</v11:usuario>\n               <!--Optional:-->\n               <v11:accion>Consulta</v11:accion>\n               <!--Optional:-->\n               <v11:destino>SOA</v11:destino>\n               <!--Optional:-->\n               <v11:usuarioModificacion>CC79488602</v11:usuarioModificacion>\n               <!--Optional:-->\n               <v11:numeroReferencia>XXXXXX</v11:numeroReferencia>\n               <!--Optional:-->\n               <v11:numeroSolicitud>1</v11:numeroSolicitud>\n               <!--Optional:-->\n               <v11:codigoCliente>CC79488602</v11:codigoCliente>\n               <!--Optional:-->\n               <v11:correlacion/>\n               <!--Optional:-->\n               <v11:idioma>ES</v11:idioma>\n            </v11:invocador>\n         </v1:cabeceraEntrada>\n         <v1:tipoDocumento>CE</v1:tipoDocumento>\n         <v1:numeroDocumento>610444</v1:numeroDocumento>\n      </v1:ValidarClienteRequest>\n   </soapenv:Body>\n</soapenv:Envelope>",
   "created_at": "2025-03-20T23:43:50.268953",
-  "last_checked": "2025-03-22T18:09:38.948381",
+  "last_checked": "2025-03-22T18:36:29.621669",
   "last_response": {
-    "error": "Error inesperado: HTTPConnectionPool(host='192.168.64.82', port=8080): Max retries exceeded with url: /canales/ValidarCliente/v1?wsdl (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x000001412604BF50>, 'Connection to 192.168.64.82 timed out. (connect timeout=300)'))",
-    "status": "error"
+    "error": "name 'max_retries' is not defined"
   },
-  "updated_at": "2025-03-22T18:09:38.948381"
+  "updated_at": "2025-03-22T18:36:29.621669"
 }

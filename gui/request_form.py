@@ -3,6 +3,7 @@ import re
 import logging
 import json
 import datetime
+import sys
 from typing import Dict, Any, Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit, 
@@ -486,13 +487,30 @@ class RequestForm(QWidget):
         verify_task_btn.clicked.connect(lambda: self._check_task_status(self.name_input.text().strip()))
         monitoring_layout.addWidget(verify_task_btn, 0, 2, 1, 2)  # Extender a 2 columnas
 
+        # Segunda fila: Opciones de timeout y reintentos
+        monitoring_layout.addWidget(QLabel("Timeout (seg):"), 1, 0)
+        self.request_timeout = QSpinBox()
+        self.request_timeout.setMinimum(5)
+        self.request_timeout.setMaximum(300)
+        self.request_timeout.setValue(30)  # 30 segundos por defecto
+        self.request_timeout.setToolTip("Tiempo máximo de espera para la respuesta en segundos")
+        monitoring_layout.addWidget(self.request_timeout, 1, 1)
+
+        monitoring_layout.addWidget(QLabel("Reintentos:"), 1, 2)
+        self.max_retries = QSpinBox()
+        self.max_retries.setMinimum(0)
+        self.max_retries.setMaximum(5)
+        self.max_retries.setValue(1)  # 1 reintento por defecto
+        self.max_retries.setToolTip("Número de reintentos si falla la conexión")
+        monitoring_layout.addWidget(self.max_retries, 1, 3)
+
         # Segunda fila: Checkboxes
         self.monitor_enabled = QCheckBox("Activar monitoreo automático")
         self.monitor_enabled.setChecked(True)
-        monitoring_layout.addWidget(self.monitor_enabled, 1, 0, 1, 2)
+        monitoring_layout.addWidget(self.monitor_enabled, 2, 0, 1, 2)
 
         self.add_to_system = QCheckBox("Añadir al programador de tareas del sistema")
-        monitoring_layout.addWidget(self.add_to_system, 1, 2, 1, 2)
+        monitoring_layout.addWidget(self.add_to_system, 2, 2, 1, 2)
         
         # Añadir grupo de monitoreo al layout principal
         form_layout.addWidget(monitoring_group)
@@ -1178,6 +1196,8 @@ class RequestForm(QWidget):
                 'monitor_interval': self.monitor_interval.value(),
                 'monitor_enabled': self.monitor_enabled.isChecked(),
                 'add_to_system': self.add_to_system.isChecked(),
+                'request_timeout': self.request_timeout.value(),  # Nuevo campo
+                'max_retries': self.max_retries.value(),          # Nuevo campo
                 'status': 'active'  # Estado inicial
             }
             
@@ -1275,6 +1295,13 @@ class RequestForm(QWidget):
         self.name_input.setText(request_data.get('name', ''))
         self.description_input.setText(request_data.get('description', ''))
         
+        # Cargar datos timeout y reintentos
+        request_timeout = request_data.get('request_timeout', 30)  # Default 30 segundos
+        self.request_timeout.setValue(request_timeout)
+
+        max_retries = request_data.get('max_retries', 1)  # Default 1 reintento
+        self.max_retries.setValue(max_retries)
+
         # Determinar tipo y seleccionar
         service_type = request_data.get('type', 'SOAP')  # Por defecto SOAP para compatibilidad
         type_index = 0 if service_type == 'SOAP' else 1
@@ -1355,6 +1382,53 @@ class RequestForm(QWidget):
             if not service_data:
                 self._log_event(f"Error: No se pudo cargar servicio {service_name}", "error")
                 return
+            
+            # Obtener configuración de timeout y reintentos
+            timeout = service_data.get('request_timeout', 30)  # Default 30 segundos
+            max_retries = service_data.get('max_retries', 1)   # Default 1 reintento
+            
+            self._log_event(f"Configuración: Timeout={timeout}s, Reintentos={max_retries}", "info")
+
+            # Verificar tipo de servicio
+            service_type = service_data.get('type', 'SOAP')
+            
+            # Guardar una copia completa del servicio para restaurar en caso de error
+            service_backup = service_data.copy()
+            
+            if service_type == 'SOAP':
+                # Verificar que tenga los datos necesarios
+                if not service_data.get('wsdl_url') or not service_data.get('request_xml'):
+                    self._log_event(f"Error: Faltan datos para verificar {service_name}", "error")
+                    return
+                    
+                # Enviar request con timeout y reintentos
+                wsdl_url = service_data.get('wsdl_url')
+                request_xml = service_data.get('request_xml')
+                
+                success, result = self.soap_client.send_raw_request(
+                    wsdl_url, 
+                    request_xml,
+                    timeout=timeout, 
+                    max_retries=max_retries
+                )
+            else:  # REST
+                # Configuración REST
+                url = service_data.get('url')
+                method = service_data.get('method', 'GET')
+                headers = service_data.get('headers', {})
+                params = service_data.get('params', {})
+                json_data = service_data.get('json_data')
+                
+                # Enviar request REST con timeout y reintentos
+                success, result = self.rest_client.send_request(
+                    url=url,
+                    method=method,
+                    headers=headers,
+                    params=params,
+                    json_data=json_data,
+                    timeout=timeout,
+                    max_retries=max_retries
+                )
             
             # Verificar que tenga los datos necesarios
             if not service_data.get('wsdl_url') or not service_data.get('request_xml'):
