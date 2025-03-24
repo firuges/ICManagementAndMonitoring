@@ -11,6 +11,7 @@ Una aplicación de gestión y monitoreo de servicios SOAP con interfaz gráfica,
 - **Programación de Tareas**: Integración con el programador del sistema operativo.
 - **Interfaz Gráfica Intuitiva**: Gestión visual de todos los servicios.
 - **Modo Headless**: Ejecución desde línea de comandos sin interfaz gráfica.
+- **Herramientas de Diagnostico**: Utilidades para resolver problemas de validación.
 
 ## Requisitos
 
@@ -58,57 +59,122 @@ Verificar todos los servicios:
 python app.py --check-all
 ```
 
-## Guía de Usuario
+Guía de Usuario
+## 1. Gestión de Servicios
+Para crear un nuevo servicio SOAP o REST:
 
-### 1. Gestión de Requests SOAP
+Ir a la pestaña "Gestión de Requests"
+Seleccionar el tipo de servicio (SOAP o REST)
+Completar los campos según el tipo:
+Para SOAP:
 
-Para crear un nuevo request SOAP:
+Nombre: Identificador descriptivo del servicio
+Descripción: Detalle del propósito del servicio
+URL WSDL: Dirección del WSDL del servicio
+Request XML: Estructura XML del request SOAP
 
-1. Ir a la pestaña "Gestión de Requests"
-2. Completar los campos:
-   - **Nombre**: Identificador descriptivo del servicio
-   - **Descripción**: Detalle del propósito del servicio
-   - **URL WSDL**: Dirección del WSDL del servicio
-   - **Request XML**: Estructura XML del request SOAP
-   - **Patrones de Validación**: Reglas para validar respuestas (formato JSON)
-3. Configurar opciones de monitoreo:
-   - **Intervalo**: Frecuencia de verificación en minutos
-   - **Activar monitoreo**: Habilitar verificación automática
-4. Hacer clic en "Guardar"
+Para REST:
 
-### 2. Configuración de Notificaciones
+Nombre: Identificador descriptivo del servicio
+Descripción: Detalle del propósito del servicio
+URL: Endpoint del servicio REST
+Método HTTP: GET, POST, PUT, DELETE, etc.
+Headers: Cabeceras HTTP requeridas
+Query Parameters: Parámetros de consulta
+Body JSON: Datos a enviar en formato JSON (para POST/PUT)
 
+
+Configurar patrones de validación:
+
+Definir cómo se validarán las respuestas (ver sección "Patrones de Validación")
+
+
+Configurar opciones de monitoreo:
+
+Intervalo: Frecuencia de verificación en minutos
+Activar monitoreo: Habilitar verificación automática
+Añadir al programador de tareas: Registrar en el sistema operativo
+
+
+Hacer clic en "Guardar"
+
+## 2. Patrones de Validación
+Los patrones de validación permiten verificar si la respuesta del servicio es correcta. Se configuran en formato JSON:
+{
+  "success_field": "codMensaje",
+  "success_values": ["00000", "0", "OK"],
+  "warning_values": ["2001", "2002"],
+  "validation_strategy": "flexible",
+  "alternative_paths": [
+    {
+      "field": "estadoRespuesta",
+      "success_values": ["OK", "SUCCESS"]
+    }
+  ],
+  "expected_fields": {
+    "resultado": null
+  }
+}
+Donde:
+
+success_field: Campo que indica éxito/error (ej: "codMensaje" o "status")
+success_values: Lista de valores que indican éxito
+warning_values: Lista de valores que se tratan como advertencia
+failed_values: Lista de valores que indican fallo conocido
+validation_strategy: Estrategia de validación ("strict", "flexible", "permissive")
+alternative_paths: Rutas alternativas para validación
+expected_fields: Campos adicionales que deben existir, con valores específicos o null (solo verificar existencia)
+
+## 3. Configuración de Notificaciones
 Para configurar las notificaciones por email:
 
-1. Ir a la pestaña "Configuración de Notificaciones"
-2. Completar la configuración SMTP:
-   - **Servidor SMTP**: Dirección del servidor de correo
-   - **Puerto**: Puerto de conexión (normalmente 587 para TLS)
-   - **Usuario y Contraseña**: Credenciales de acceso
-3. Añadir destinatarios de correo electrónico
-4. Configurar opciones de notificación:
-   - **Notificar errores de conexión**: Alertar problemas de conectividad
-   - **Notificar errores de validación**: Alertar respuestas incorrectas
-5. Hacer clic en "Guardar configuración"
+Ir a la pestaña "Configuración de Notificaciones"
+Completar la configuración SMTP:
 
-### 3. Monitoreo de Servicios
+Servidor SMTP: Dirección del servidor de correo
+Puerto: Puerto de conexión (normalmente 587 para TLS)
+Usuario y Contraseña: Credenciales de acceso
 
+
+Añadir destinatarios de correo electrónico
+Configurar opciones de notificación:
+
+Notificar errores de conexión: Alertar problemas de conectividad
+Notificar errores de validación: Alertar respuestas incorrectas
+
+
+Hacer clic en "Guardar configuración"
+
+## 4. Monitoreo de Servicios
 La pestaña "Monitoreo" muestra:
 
-- **Tabla de Servicios**: Lista de todos los servicios configurados
-- **Detalles del Servicio**: Información detallada del servicio seleccionado
-- **Última Respuesta**: Contenido de la última respuesta recibida
-- **Log de Eventos**: Registro de actividades y errores
+Tabla de Servicios: Lista de todos los servicios configurados
+Detalles del Servicio: Información detallada del servicio seleccionado
+Última Respuesta: Contenido de la última respuesta recibida
+Log de Eventos: Registro de actividades y errores
 
 Funciones disponibles:
-- **Verificar**: Comprobar un servicio específico
-- **Verificar Todos**: Comprobar todos los servicios
-- **Actualizar**: Refrescar la lista de servicios
+
+Verificar: Comprobar un servicio específico
+Verificar Todos: Comprobar todos los servicios
+Actualizar: Refrescar la lista de servicios
+Filtrar por Grupo: Ver solo servicios de un grupo específico
+
+## 5. Herramientas de Diagnóstico
+El sistema incluye herramientas para diagnosticar y solucionar problemas:
+
+validation_tester.py: Prueba la validación de un servicio específico
+Copiarpython tools/validation_tester.py "NombreServicio"
+
+validation_parity.py: Verifica la consistencia entre validaciones SOAP y REST
+Copiarpython tools/validation_parity.py
+
+update_validation_pattern.py: Actualiza patrones de validación existentes
+Copiarpython tools/update_validation_pattern.py "NombreServicio"
+
 
 ## Estructura del Proyecto
-
-```
-soap_monitor/
+Copiarsoap_rest_monitor/
 │
 ├── app.py                  # Punto de entrada de la aplicación
 ├── requirements.txt        # Dependencias
@@ -116,6 +182,7 @@ soap_monitor/
 ├── core/                   # Componentes del núcleo
 │   ├── persistence.py      # Gestión de archivos JSON
 │   ├── soap_client.py      # Cliente SOAP y validación
+│   ├── rest_client.py      # Cliente REST y validación
 │   ├── notification.py     # Sistema de notificaciones
 │   ├── scheduler.py        # Programador de tareas
 │   └── monitor.py          # Script de monitoreo independiente
@@ -124,70 +191,70 @@ soap_monitor/
 │   ├── main_window.py      # Ventana principal
 │   ├── request_form.py     # Formulario de requests
 │   ├── email_form.py       # Formulario de emails
-│   └── monitoring_panel.py # Panel de monitoreo
+│   ├── monitoring_panel.py # Panel de monitoreo
+│   └── admin_check_dialog.py # Verificación de permisos
 │
 ├── data/                   # Almacenamiento de datos
-│   ├── requests/           # Requests individuales (JSON)
+│   ├── requests/           # Configuraciones de servicios (JSON)
 │   ├── email_config.json   # Configuración de destinatarios
 │   └── smtp_config.json    # Configuración SMTP
 │
 ├── logs/                   # Registros de la aplicación
 │
+├── debug/                  # Archivos de diagnóstico
+│
+├── tools/                  # Herramientas de utilidad
+│   ├── validation_tester.py       # Diagnóstico de validación
+│   ├── validation_parity.py       # Verificación de consistencia
+│   └── update_validation_pattern.py # Actualización de patrones
+│
+├── task_templates/         # Plantillas para tareas programadas
+│
 └── examples/               # Scripts de ejemplo
     └── create_ejectransfinter_request.py  # Creación de request de ejemplo
-```
-
-## Configuración de Patrones de Validación
-
-Los patrones de validación permiten verificar si la respuesta del servicio es correcta. Se definen en formato JSON:
-
-```json
-{
-  "campo.anidado": "valor_esperado",
-  "otro_campo": null
-}
-```
-
-Donde:
-- `"campo.anidado": "valor_esperado"`: Verifica que el campo exista y tenga el valor exacto.
-- `"otro_campo": null`: Verifica únicamente que el campo exista.
-
-## Integración con el Sistema de Tareas
-
+Integración con el Sistema de Tareas
 La aplicación puede registrar tareas en el programador del sistema operativo:
 
-- En Windows: Usa el programador de tareas (Task Scheduler)
-- En Linux/Unix: Usa crontab
+En Windows: Usa el programador de tareas (Task Scheduler)
+En Linux/Unix: Usa crontab
 
-Para activar esta función, marque la opción "Añadir al programador de tareas del sistema" al crear o editar un request.
+Para activar esta función, marque la opción "Añadir al programador de tareas del sistema" al crear o editar un servicio.
+Solución de Problemas
+Errores de Validación
 
-## Solución de Problemas
+Si un servicio está fallando en validación, use las herramientas de diagnóstico:
+Copiarpython tools/validation_tester.py "NombreServicio"
 
-### Errores de Conexión SMTP
+Para actualizar a un patrón de validación flexible:
+Copiarpython tools/update_validation_pattern.py "NombreServicio"
 
-1. Verifique que el servidor SMTP esté correctamente configurado
-2. Si usa Gmail, habilite "Acceso de aplicaciones menos seguras" o use una "Contraseña de aplicación"
 
-### Errores en Servicios SOAP
+Errores de Conexión SMTP
 
-1. Verifique que la URL del WSDL sea accesible
-2. Compruebe que el formato del XML sea correcto
-3. Verifique que los namespaces sean correctos
+Verifique que el servidor SMTP esté correctamente configurado
+Si usa Gmail, habilite "Acceso de aplicaciones menos seguras" o use una "Contraseña de aplicación"
 
-### Problemas con la Validación
+Errores en Servicios SOAP/REST
 
-1. Revise que el formato JSON de los patrones de validación sea correcto
-2. Use el botón "Probar Request" para verificar manualmente la respuesta
+Verifique que las URLs sean accesibles
+Compruebe que el formato del XML/JSON sea correcto
+Verifique que los namespaces/headers sean correctos
 
-## Licencia
+Cambios Recientes
 
-[MIT License](LICENSE)
+Validación flexible y consistente para servicios SOAP y REST
+Herramientas de diagnóstico y corrección de problemas
+Estandarización de patrones de validación
+Mejor manejo de errores y reintentos
+Configuración de timeout personalizable por servicio
 
-## Contacto
-
+Licencia
+MIT License
+Contacto
 Para soporte o consultas:
-- Email: soporte@ejemplo.com
-- Repositorio: https://github.com/username/soap-monitor
+
+Email: soporte@ejemplo.com
+Repositorio: https://github.com/username/soap-rest-monitor
 
 
 
@@ -264,7 +331,7 @@ Usa python app.py --check-all para verificar todos los servicios desde CLI
 
 
 
-Ejemplo Incluido
+## Ejemplo Incluido
 Se ha incluido un script de ejemplo (examples/create_ejectransfinter_request.py) que crea automáticamente una configuración para el servicio EjecTransfInter basado en el WSDL que proporcionaste. Esto facilita comenzar a usar la aplicación rápidamente.
 Próximos Pasos
 
@@ -281,9 +348,9 @@ Esta aplicación proporciona una solución completa para el monitoreo de servici
 
 
 Ejemplos Prácticos de Implementación
-Ejemplo 1: Validación con Advertencias
+## Ejemplo 1: Validación con Advertencias
 Para un servicio que considera "2001" como advertencia y no como error:
-jsonCopiar{
+{
   "success_field": "codMensaje",
   "success_values": ["00000"],
   "warning_values": ["2001"],
@@ -292,18 +359,18 @@ jsonCopiar{
   },
   "validation_strategy": "flexible"
 }
-Ejemplo 2: Validación con Campo Alternativo
+## Ejemplo 2: Validación con Campo Alternativo
 Para un servicio que usa un campo diferente para indicar éxito:
-jsonCopiar{
+{
   "success_field": "estadoRespuesta",
   "success_values": ["OK", "EXITO", "COMPLETADO"],
   "expected_fields": {
     "datosSolicitados": null
   }
 }
-Ejemplo 3: Validación con Múltiples Rutas
+## Ejemplo 3: Validación con Múltiples Rutas
 Para servicios que pueden tener estructuras de respuesta variables:
-jsonCopiar{
+{
   "success_field": "codMensaje",
   "success_values": ["00000"],
   "alternative_paths": [
@@ -337,9 +404,9 @@ Estrategias personalizables por servicio
 Sistema de clasificación de respuestas (éxito/error/advertencia)
 
 Implementación Detallada
-1. Mejora del Esquema de Validación
+## 1. Mejora del Esquema de Validación
 Primero, expandiremos el formato de validation_pattern para soportar reglas más complejas:
-pythonCopiar# Ejemplo de estructura mejorada:
+# Ejemplo de estructura mejorada:
 validation_schema = {
     # Configuración general
     "success_field": "codMensaje",  # Campo que indica éxito/error
@@ -365,16 +432,16 @@ validation_schema = {
     "treat_empty_as_success": false     # Considerar respuesta vacía como éxito
 }
 Consideraciones Técnicas
-1. Retrocompatibilidad
+## 1. Retrocompatibilidad
 La implementación mantiene compatibilidad con el formato simple {"status": "ok"} para no romper configuraciones existentes.
-2. Rendimiento
+## 2. Rendimiento
 La validación flexible implica más comprobaciones, pero el impacto en rendimiento es mínimo ya que:
 
 Se utiliza un diccionario aplanado para búsquedas O(1)
 Las validaciones se ejecutan secuencialmente hasta encontrar coincidencia
 La caché de respuestas aplanadas evita reprocesamiento
 
-3. Extensibilidad
+## 3. Extensibilidad
 El diseño permite añadir nuevas estrategias y reglas de validación sin modificar la estructura base:
 pythonCopiar# Ejemplo de extensión futura: validación con expresiones regulares
 if validation_schema.get("use_regex", False):
@@ -383,7 +450,7 @@ if validation_schema.get("use_regex", False):
     field_value_str = str(field_value)
     if pattern and re.match(pattern, field_value_str):
         return True, f"Validación exitosa mediante expresión regular", "success"
-4. Manejo de Errores
+## 4. Manejo de Errores
 La implementación incluye manejo robusto de errores, con registro detallado y recuperación automática en caso de fallos.
 Instrucciones de Implementación
 
@@ -405,29 +472,29 @@ Esta arquitectura no solo resuelve los escenarios planteados, sino que proporcio
 
 
 Aquí tienes varias opciones de JSON para las validaciones, con diferentes configuraciones según distintos escenarios:
-1. Configuración básica de éxito/error
-jsonCopiar{
+## 1. Configuración básica de éxito/error
+{
   "success_field": "codMensaje",
   "success_values": ["00000"],
   "validation_strategy": "flexible"
 }
-2. Configuración con manejo de advertencias
-jsonCopiar{
+## 2. Configuración con manejo de advertencias
+{
   "success_field": "codMensaje",
   "success_values": ["00000"],
   "warning_values": ["2001", "2002", "2003"],
   "validation_strategy": "flexible"
 }
-3. Configuración completa con éxito/advertencia/fallo
-jsonCopiar{
+## 3. Configuración completa con éxito/advertencia/fallo
+{
   "success_field": "codMensaje",
   "success_values": ["00000", "00001"],
   "warning_values": ["2001", "2002", "2003"],
   "failed_values": ["5000", "5001", "9999"],
   "validation_strategy": "flexible"
 }
-4. Validación estricta con campos esperados
-jsonCopiar{
+## 4. Validación estricta con campos esperados
+{
   "success_field": "codMensaje",
   "success_values": ["00000"],
   "expected_fields": {
@@ -436,8 +503,8 @@ jsonCopiar{
   },
   "validation_strategy": "strict"
 }
-5. Validación con campos esperados y valores específicos
-jsonCopiar{
+## 5. Validación con campos esperados y valores específicos
+{
   "success_field": "codMensaje",
   "success_values": ["00000"],
   "expected_fields": {
@@ -446,15 +513,15 @@ jsonCopiar{
   },
   "validation_strategy": "flexible"
 }
-6. Validación de respuestas con estructura XML compleja
-jsonCopiar{
+## 6. Validación de respuestas con estructura XML compleja
+{
   "success_field": "Envelope.Body.cabeceraSalida.codMensaje",
   "success_values": ["00000"],
   "warning_values": ["2001"],
   "validation_strategy": "flexible"
 }
-7. Validación para servicios con múltiples rutas de respuesta posibles
-jsonCopiar{
+## 7. Validación para servicios con múltiples rutas de respuesta posibles
+{
   "success_field": "codMensaje",
   "success_values": ["00000"],
   "alternative_paths": [
@@ -469,8 +536,8 @@ jsonCopiar{
   ],
   "validation_strategy": "flexible"
 }
-8. Validación para servicios con errores específicos de negocio
-jsonCopiar{
+## 8. Validación para servicios con errores específicos de negocio
+{
   "success_field": "codMensaje",
   "success_values": ["00000"],
   "warning_values": ["2001", "2002"],
@@ -480,15 +547,15 @@ jsonCopiar{
     "codigoOperacion": null
   }
 }
-9. Validación permisiva para servicios poco fiables
-jsonCopiar{
+## 9. Validación permisiva para servicios poco fiables
+{
   "validation_strategy": "permissive",
   "treat_empty_as_success": true,
   "success_field": "codMensaje",
   "success_values": ["00000", "00001", "00002"]
 }
-10. Validación para servicios que retornan listas
-jsonCopiar{
+## 10. Validación para servicios que retornan listas
+{
   "success_field": "cabecera.codMensaje",
   "success_values": ["00000"],
   "expected_fields": {
@@ -496,15 +563,15 @@ jsonCopiar{
     "lista.totalRegistros": null
   }
 }
-11. Validación para respuestas con namespace
-jsonCopiar{
+## 11. Validación para respuestas con namespace
+{
   "success_field": "v1.:codMensaje",
   "success_values": ["00000"],
   "warning_values": ["2001", "2002"],
   "validation_strategy": "flexible"
 }
-12. Validación con enfoque en texto del mensaje de usuario
-jsonCopiar{
+## 12. Validación con enfoque en texto del mensaje de usuario
+{
   "success_field": "codMensaje",
   "success_values": ["00000"],
   "expected_fields": {
@@ -512,8 +579,8 @@ jsonCopiar{
   },
   "validation_strategy": "flexible"
 }
-13. Validación de servicios de consulta
-jsonCopiar{
+## 13. Validación de servicios de consulta
+{
   "success_field": "codMensaje",
   "success_values": ["00000"],
   "warning_values": ["2001"],
@@ -523,8 +590,8 @@ jsonCopiar{
     "fechaConsulta": null
   }
 }
-14. Validación específica para servicio ValidarOtp
-jsonCopiar{
+## 14. Validación específica para servicio ValidarOtp
+{
   "success_field": "codMensaje",
   "success_values": ["00000"],
   "warning_values": ["2001"],
@@ -534,8 +601,8 @@ jsonCopiar{
   },
   "validation_strategy": "flexible"
 }
-15. Validación con manejo de texto en XML
-jsonCopiar{
+## 15. Validación con manejo de texto en XML
+{
   "success_field": "codMensaje.#text",
   "success_values": ["00000"],
   "warning_values": ["2001"],

@@ -16,7 +16,7 @@ import os
 import sys
 import logging
 import argparse
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QDialog
 from PyQt5.QtGui import QIcon
 
 # Configurar directorio raíz
@@ -93,6 +93,10 @@ def parse_arguments():
     parser.add_argument('--check-all', action='store_true',
                        help='Verificar todos los servicios')
     
+    # Añadir nuevo argumento aquí, dentro de la función
+    parser.add_argument('--no-admin-check', action='store_true', 
+                       help='Omitir la verificación de permisos de administrador')
+    
     return parser.parse_args()
 
 def run_headless(args, logger):
@@ -163,10 +167,19 @@ def main():
     args = parse_arguments()
     
     try:
-        # Determinar modo de ejecución
         if args.headless or args.check or args.check_all:
             run_headless(args, logger)
         else:
+            # Verificar permisos antes de iniciar la GUI
+            app = QApplication(sys.argv)
+            
+            # Mostrar diálogo de verificación de administrador
+            if not args.no_admin_check:
+                from gui.admin_check_dialog import AdminCheckDialog
+                admin_dialog = AdminCheckDialog()
+                if admin_dialog.exec_() != QDialog.Accepted:
+                    sys.exit(0)
+            
             run_gui()
     except Exception as e:
         logger.error(f"Error en la aplicación: {str(e)}", exc_info=True)

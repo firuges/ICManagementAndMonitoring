@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QStackedWidget, QTableWidget, QTextBrowser,QMenu, QDialogButtonBox, QGridLayout
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QRegExp
-from PyQt5.QtGui import QRegExpValidator, QFont
+from PyQt5.QtGui import QRegExpValidator, QFont, QIcon
 
 # Importar módulos de la aplicación
 from core.persistence import PersistenceManager
@@ -473,6 +473,9 @@ class RequestForm(QWidget):
         monitoring_group = QGroupBox("Opciones de Monitoreo")
         monitoring_layout = QGridLayout()
         monitoring_group.setLayout(monitoring_layout)
+
+        self._update_monitoring_group(monitoring_layout)
+        form_layout.addWidget(monitoring_group)
 
         # Primera fila: Intervalo y verificación
         monitoring_layout.addWidget(QLabel("Intervalo (minutos):"), 0, 0)
@@ -2023,3 +2026,99 @@ class RequestForm(QWidget):
         layout.addLayout(btn_layout)
         
         help_dialog.exec_()
+    
+    def _update_monitoring_group(self, monitoring_layout):
+        """Actualiza el grupo de opciones de monitoreo con nuevos botones"""
+        # Esta función debe llamarse desde _create_ui() después de crear monitoring_group
+        
+        # Botones adicionales para manejo de tareas
+        task_buttons_layout = QHBoxLayout()
+        
+        # Botón para exportar tarea
+        self.btn_export_task = QPushButton("Exportar tarea")
+        self.btn_export_task.setIcon(QIcon.fromTheme("document-save", QIcon()))
+        self.btn_export_task.setToolTip("Exporta los archivos necesarios para crear manualmente una tarea programada")
+        self.btn_export_task.clicked.connect(self._export_task_files)
+        task_buttons_layout.addWidget(self.btn_export_task)
+        
+        # Botón para forzar creación de tarea
+        self.btn_force_task = QPushButton("Forzar creación")
+        self.btn_force_task.setIcon(QIcon.fromTheme("system-run", QIcon()))
+        self.btn_force_task.setToolTip("Intenta crear la tarea en el sistema con privilegios elevados")
+        self.btn_force_task.clicked.connect(self._force_create_task)
+        task_buttons_layout.addWidget(self.btn_force_task)
+        
+        # Añadir los nuevos botones al layout del grupo de monitoreo
+        monitoring_layout.addLayout(task_buttons_layout, 3, 0, 1, 4)  # Ocupa toda la fila 3
+        
+        # Indicador de estado de administrador
+        admin_layout = QHBoxLayout()
+
+         # Función local para verificar permisos admin
+        def is_admin():
+            try:
+                import sys
+                import ctypes
+                if sys.platform.startswith('win'):
+                    return ctypes.windll.shell32.IsUserAnAdmin() != 0
+                else:
+                    import os
+                    return os.geteuid() == 0
+            except:
+                return False
+        # Verificar si se ejecuta como administrador
+        is_running_as_admin = is_admin()
+        
+        admin_indicator = QLabel()
+        if is_running_as_admin:
+            admin_indicator.setText("✓ Ejecutando como administrador")
+            admin_indicator.setStyleSheet("color: green; font-weight: bold;")
+        else:
+            admin_indicator.setText("❗ Ejecutando sin privilegios de administrador")
+            admin_indicator.setStyleSheet("color: #CC6600; font-weight: bold;")
+        
+        admin_layout.addWidget(admin_indicator)
+        admin_layout.addStretch()
+        
+        # Añadir indicador de admin al layout del grupo de monitoreo
+        monitoring_layout.addLayout(admin_layout, 4, 0, 1, 4)  # Ocupa toda la fila 4
+
+    def _export_task_files(self):
+        """Manejador para exportar archivos de tarea programada"""
+        # Verificar que tengamos un nombre de servicio
+        service_name = self.name_input.text().strip()
+        if not service_name:
+            QMessageBox.warning(self, "Advertencia", "Debe especificar un nombre para el servicio")
+            return
+        
+        # Obtener intervalo
+        interval = self.monitor_interval.value()
+        
+        # Usar la función de exportación del scheduler
+        success = self.scheduler.export_task_files(service_name, interval)
+        
+        if success:
+            QMessageBox.information(self, "Exportación completada", 
+                f"Los archivos para crear la tarea programada para '{service_name}' han sido exportados.\n\n"
+                f"Para registrar la tarea, siga las instrucciones en el archivo README.txt incluido.")
+        else:
+            QMessageBox.warning(self, "Error", 
+                "No se pudieron exportar los archivos de tarea. Verifique los logs para más detalles.")
+
+    def _force_create_task(self):
+        """Manejador para forzar la creación de una tarea programada"""
+        # Verificar que tengamos un nombre de servicio
+        service_name = self.name_input.text().strip()
+        if not service_name:
+            QMessageBox.warning(self, "Advertencia", "Debe especificar un nombre para el servicio")
+            return
+        
+        # Obtener intervalo
+        interval = self.monitor_interval.value()
+        
+        # Intentar forzar la creación
+        success = self.scheduler.force_create_system_task(service_name, interval)
+        
+        if success:
+            QMessageBox.information(self, "Tarea creada", 
+                f"La tarea programada para '{service_name}' ha sido creada exitosamente en el programador de Windows.")

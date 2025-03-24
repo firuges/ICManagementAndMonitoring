@@ -7,16 +7,24 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QPushButton, 
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox, QMenu,
     QCheckBox, QSpinBox, QComboBox, QGroupBox, QSplitter, QTextBrowser,
-    QDialog, QTextEdit, QDialogButtonBox, QApplication
+    QDialog, QTextEdit, QDialogButtonBox, QApplication, QProgressBar,QProgressDialog
+    
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer
-from PyQt5.QtGui import QColor, QBrush, QFont, QIcon
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QEventLoop, QSize, QThread, pyqtSignal
+from PyQt5.QtGui import QColor, QBrush, QFont, QIcon, QMovie
 
 # Importar módulos de la aplicación
 from core.persistence import PersistenceManager
 from core.soap_client import SOAPClient
 from core.scheduler import SOAPMonitorScheduler
 from core.rest_client import RESTClient
+
+# Constantes de estado - añadir al inicio de la clase MonitoringPanel
+STATUS_IDLE = 0
+STATUS_CHECKING = 1
+STATUS_OK = 2
+STATUS_WARNING = 3
+STATUS_ERROR = 4
 
 # Configuración de logging
 logging.basicConfig(
@@ -586,9 +594,14 @@ class MonitoringPanel(QWidget):
                     
                 self.services_table.insertRow(i)
                 
-                # Nombre del servicio
-                name_item = QTableWidgetItem(request.get('name', 'Sin nombre'))
+                # Nombre del servicio con CustomTableWidgetItem
+                name_item = CustomTableWidgetItem(request.get('name', 'Sin nombre'))
                 name_item.setData(Qt.UserRole, request)  # Almacenar datos completos
+                
+                # Verificar si el servicio está siendo verificado actualmente
+                if hasattr(self, '_checking_services') and request.get('name') in self._checking_services:
+                    name_item.setStatus(STATUS_CHECKING)
+                
                 self.services_table.setItem(i, 0, name_item)
                 
                 # Agregar columna de tipo (SOAP/REST)
@@ -1071,13 +1084,30 @@ class MonitoringPanel(QWidget):
         
         self._log_event(f"Servicio seleccionado: {service_data.get('name')}")
     
-    def check_service(self, service_name: str):
+    def check_service(self, service_name: str, show_progress: bool = True):
         """
-        Verifica un servicio específico con validación avanzada.
+        Verifica un servicio específico usando un thread en segundo plano.
         
         Args:
             service_name (str): Nombre del servicio a verificar
+            show_progress (bool): Si se debe mostrar indicador de progreso
+            
+        Returns:
+            bool: True si la verificación fue iniciada correctamente
         """
+        # Evitar verificaciones múltiples simultáneas
+        if hasattr(self, '_checking_services') and service_name in self._checking_services:
+            self._log_event(f"Servicio {service_name} ya está siendo verificado", "warning")
+            return False
+        
+        # Inicializar diccionario de servicios en verificación si no existe
+        if not hasattr(self, '_checking_services'):
+            self._checking_services = {}
+        
+        # Inicializar diccionario de hilos de verificación si no existe
+        if not hasattr(self, '_checker_threads'):
+            self._checker_threads = {}
+        
         self._log_event(f"Verificando servicio: {service_name}")
         
         try:
@@ -1086,113 +1116,142 @@ class MonitoringPanel(QWidget):
             
             if not service_data:
                 self._log_event(f"Error: No se pudo cargar servicio {service_name}", "error")
-                return
+                return False
             
-            # Determinar el tipo de servicio
-            service_type = service_data.get('type', 'SOAP')  # Por defecto SOAP para compatibilidad
+            # Buscar la fila correspondiente en la tabla
+            service_row = -1
+            for row in range(self.services_table.rowCount()):
+                item = self.services_table.item(row, 0)
+                if item and item.text() == service_name:
+                    service_row = row
+                    break
             
-            # Guardar una copia completa del servicio para restaurar en caso de error
-            service_backup = service_data.copy()
-        
-            if service_type == 'SOAP':
-                if not service_data.get('wsdl_url') or not service_data.get('request_xml'):
-                    self._log_event(f"Error: Faltan datos para verificar servicio SOAP {service_name}", "error")
-                    return
-                    
-                # Enviar request SOAP
-                wsdl_url = service_data.get('wsdl_url')
-                request_xml = service_data.get('request_xml')
-                
-                success, result = self.soap_client.send_raw_request(wsdl_url, request_xml)
-            else:  # REST
-                if not service_data.get('url'):
-                    self._log_event(f"Error: Falta URL para verificar servicio REST {service_name}", "error")
-                    return
-                    
-                # Preparar parámetros REST
-                url = service_data.get('url')
-                method = service_data.get('method', 'GET')
-                headers = service_data.get('headers', {})
-                params = service_data.get('params', {})
-                json_data = service_data.get('json_data')
-                
-                # Registrar log detallado
-                self._log_event(f"Enviando request REST: URL={url}, Método={method}", "info")
-                if json_data:
-                    self._log_event(f"JSON data: {json.dumps(json_data)[:100]}...", "info")
-                
-                # Enviar request REST
-                success, result = self.rest_client.send_request(
-                    url=url,
-                    method=method,
-                    headers=headers,
-                    params=params,
-                    json_data=json_data  # Asegurarse de enviar correctamente el JSON
-                )
-            if not success:
-                # Guardar resultado de error
-                self.persistence.update_request_status(service_name, 'failed', result)
-                self._log_event(f"Error en servicio {service_name}: {result.get('error')}", "error")
-            else:
-                # Extraer esquema de validación (puede ser el formato anterior o el nuevo)
-                validation_schema = service_data.get('validation_pattern', {})
-                
-                # Validar la respuesta con el esquema avanzado si existe
-                valid, message, level = self.soap_client.validate_response_advanced(
-                    result['response'], validation_schema
-                )
-
-                if not valid:
-                    if level == "failed":
-                        # La respuesta es un fallo conocido
-                        self.persistence.update_request_status(service_name, 'failed', {
-                            'response': result['response'],
-                            'validation_message': message
-                        })
-                        self._log_event(f"Servicio {service_name} falló: {message}", "error")
-                    else:
-                        # La respuesta no cumple con las reglas esperadas
-                        self.persistence.update_request_status(service_name, 'invalid', {
-                            'response': result['response'],
-                            'validation_error': message
-                        })
-                        self._log_event(f"Validación fallida para {service_name}: {message}", "warning")
-                elif level == "warning":
-                    # Validación exitosa pero con advertencias
-                    self.persistence.update_request_status(service_name, 'warning', {
-                        'response': result['response'],
-                        'validation_message': message
-                    })
-                    self._log_event(f"Servicio {service_name} validado con advertencias: {message}", "warning")
+            if service_row >= 0 and show_progress:
+                # Actualizar estado visual a "verificando"
+                name_item = self.services_table.item(service_row, 0)
+                if isinstance(name_item, CustomTableWidgetItem):
+                    name_item.setStatus(STATUS_CHECKING)
                 else:
-                    # Todo está bien
-                    self.persistence.update_request_status(service_name, 'ok', {
-                        'response': result['response']
-                    })
-                    self._log_event(f"Servicio {service_name} verificado correctamente: {message}")
-
-
-            # Verificar integridad del archivo
-            file_path = os.path.join(self.persistence.requests_path, 
-                                    f"{service_name.lower().replace(' ', '_')}.json")
-            if not os.path.exists(file_path):
-                self._log_event(f"ALERTA: El archivo del servicio desapareció después de actualizar", "error")
-                self._restore_service_from_backup(service_name, service_backup)
+                    # Reemplazar con item personalizado
+                    original_text = name_item.text()
+                    original_data = name_item.data(Qt.UserRole)
+                    
+                    new_item = CustomTableWidgetItem(original_text, STATUS_CHECKING)
+                    new_item.setData(Qt.UserRole, original_data)
+                    
+                    self.services_table.setItem(service_row, 0, new_item)
+                
+                # Actualizar celda de estado con spinner
+                status_item = self.services_table.item(service_row, 2)
+                if status_item:
+                    status_text = status_item.text()
+                    
+                    # Crear spinner widget
+                    spinner = SpinnerWidget()
+                    spinner.status_label.setText("Verificando...")
+                    spinner.start()
+                    
+                    # Reemplazar celda con spinner
+                    self.services_table.setCellWidget(service_row, 2, spinner)
+                
+                # Desactivar botón verificar
+                actions_widget = self.services_table.cellWidget(service_row, 5)
+                if actions_widget:
+                    for button in actions_widget.findChildren(QPushButton):
+                        if "Verificar" in button.text():
+                            button.setEnabled(False)
+                            break
             
-            # Actualizar lista y detalles
-            self.refresh_services_list()
+            # Marcar servicio como en verificación
+            self._checking_services[service_name] = {
+                'row': service_row,
+                'start_time': datetime.now()
+            }
+            
+            # Crear y configurar hilo de verificación
+            thread = ServiceCheckerThread(
+                self, service_name, service_data, 
+                self.soap_client, self.rest_client, self.persistence
+            )
+            
+            # Conectar señales
+            thread.finished.connect(self._on_service_check_finished)
+            thread.progress.connect(self._on_service_check_progress)
+            
+            # Guardar referencia al hilo
+            self._checker_threads[service_name] = thread
+            
+            # Iniciar verificación en segundo plano
+            thread.start()
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Error al verificar servicio {service_name}: {str(e)}", exc_info=True)
-            self._log_event(f"Error al verificar {service_name}: {str(e)}", "error")
+            logger.error(f"Error al iniciar verificación de {service_name}: {str(e)}", exc_info=True)
+            self._log_event(f"Error al iniciar verificación de {service_name}: {str(e)}", "error")
             
-            # Registrar error
-            self.persistence.update_request_status(service_name, 'error', {
-                'error': str(e)
-            })
+            # Limpiar estado si hubo error
+            if service_name in self._checking_services:
+                del self._checking_services[service_name]
             
-            # Actualizar lista
-            self.refresh_services_list()
+            return False
+        
+    # 6. Método para manejar el progreso de verificación
+    def _on_service_check_progress(self, service_name, status_message):
+        """Maneja actualizaciones de progreso de verificación de servicio"""
+        # Registrar mensaje en log de eventos
+        self._log_event(f"Servicio {service_name}: {status_message}")
+        
+        # Actualizar mensaje en spinner si existe
+        if service_name in self._checking_services:
+            row = self._checking_services[service_name]['row']
+            if row >= 0 and row < self.services_table.rowCount():
+                spinner = self.services_table.cellWidget(row, 2)
+                if spinner and hasattr(spinner, 'status_label'):
+                    spinner.status_label.setText(status_message)
+    
+    # 7. Método para manejar la finalización de verificación
+    def _on_service_check_finished(self, service_name, success, message):
+        """Maneja la finalización de verificación de servicio"""
+        # Registrar resultado en log
+        if success:
+            self._log_event(f"Servicio {service_name} verificado: {message}")
+        else:
+            self._log_event(f"Error en servicio {service_name}: {message}", "error")
+        
+        # Actualizar interfaz
+        if service_name in self._checking_services:
+            row = self._checking_services[service_name]['row']
+            if row >= 0 and row < self.services_table.rowCount():
+                # Restaurar celda de estado
+                self.services_table.removeCellWidget(row, 2)
+                
+                # Actualizar estado visual
+                name_item = self.services_table.item(row, 0)
+                if isinstance(name_item, CustomTableWidgetItem):
+                    if success:
+                        name_item.setStatus(STATUS_IDLE)  # Restaurar estado normal
+                    else:
+                        name_item.setStatus(STATUS_ERROR if "Error" in message else STATUS_WARNING)
+                
+                # Re-habilitar botón verificar
+                actions_widget = self.services_table.cellWidget(row, 5)
+                if actions_widget:
+                    for button in actions_widget.findChildren(QPushButton):
+                        if "Verificar" in button.text():
+                            button.setEnabled(True)
+                            break
+        
+        # Limpiar referencias
+        if service_name in self._checking_services:
+            del self._checking_services[service_name]
+        
+        if service_name in self._checker_threads:
+            self._checker_threads[service_name].deleteLater()
+            del self._checker_threads[service_name]
+        
+        # Actualizar la lista de servicios
+        self.refresh_services_list()
     
     def _restore_service_from_backup(self, service_name: str, backup_data: Dict[str, Any]) -> bool:
         """
@@ -1226,34 +1285,83 @@ class MonitoringPanel(QWidget):
         
         self._log_event(f"Iniciando verificación de servicios {('del grupo ' + selected_group) if group_filter_active else ''}")
         
+        # Desactivar botones durante la verificación
+        self.btn_check_all.setEnabled(False)
+        self.btn_refresh.setEnabled(False)
+        
         try:
             # Obtener lista de servicios
-            requests = self.persistence.list_all_requests()
+            all_requests  = self.persistence.list_all_requests()
+            
+            # Filtrar por grupo si es necesario
+            if group_filter_active:
+                requests_to_check = [r for r in all_requests if r.get('group', 'General') == selected_group and r.get('monitor_enabled', True)]
+            else:
+                requests_to_check = [r for r in all_requests if r.get('monitor_enabled', True)]
+            
+            total_services = len(requests_to_check)
+            
+            if total_services == 0:
+                self._log_event("No hay servicios para verificar en este grupo")
+                self.btn_check_all.setEnabled(True)
+                self.btn_refresh.setEnabled(True)
+                return
+            
+            # Crear diálogo de progreso
+            progress = QProgressDialog(f"Verificando servicios {'del grupo ' + selected_group if group_filter_active else ''}...", 
+                                    "Cancelar", 0, total_services, self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setWindowTitle("Verificando Servicios")
+            progress.setMinimumDuration(0)  # Mostrar inmediatamente
+            progress.setAutoClose(True)
+            progress.setAutoReset(True)
             
             # Contador para estadísticas
-            total = 0
             checked = 0
+            success = 0
+            failed = 0
             
-            for request in requests:
-                service_name = request.get('name')
-                service_group = request.get('group', 'General')
+            # Verificar cada servicio
+            for i, service in enumerate(requests_to_check):
+                service_name = service.get('name')
                 
-                # Aplicar filtro de grupo si está activo
-                if group_filter_active and service_group != selected_group:
-                    continue
-                    
-                total += 1
+                # Actualizar diálogo de progreso
+                progress.setValue(i)
+                progress.setLabelText(f"Verificando ({i+1}/{total_services}): {service_name}")
                 
-                # Verificar solo si está habilitado
-                if service_name and request.get('monitor_enabled', True):
-                    self.check_service(service_name)
+                # Si el usuario canceló, salir
+                if progress.wasCanceled():
+                    self._log_event("Verificación cancelada por el usuario")
+                    break
+                
+                # Verificar el servicio
+                if service_name:
+                    result = self.check_service(service_name, show_progress=False)  # No mostrar progreso individual
                     checked += 1
+                    if result:
+                        success += 1
+                    else:
+                        failed += 1
+                
+                # Procesar eventos para mantener la UI responsiva
+                QApplication.processEvents()
             
-            self._log_event(f"Verificación completada: {checked} de {total} servicios verificados")
+            # Completar progreso
+            progress.setValue(total_services)
+            
+            # Registrar estadísticas
+            self._log_event(f"Verificación completada: {checked} servicios verificados, {success} exitosos, {failed} con errores")
+            
+            # Actualizar la lista de servicios
+            self.refresh_services_list()
             
         except Exception as e:
             logger.error(f"Error al verificar servicios: {str(e)}")
             self._log_event(f"Error al verificar servicios: {str(e)}", "error")
+        finally:
+            # Re-habilitar botones
+            self.btn_check_all.setEnabled(True)
+            self.btn_refresh.setEnabled(True)
     
     def _log_event(self, message: str, level: str = "info"):
         """
@@ -1437,3 +1545,204 @@ class MonitoringPanel(QWidget):
         """)
         
         return dialog
+
+class CustomTableWidgetItem(QTableWidgetItem):
+    """Item de tabla personalizado con soporte para estados"""
+    
+    def __init__(self, text="", status=STATUS_IDLE):
+        super().__init__(text)
+        self._status = status
+        self._updateStyle()
+    
+    def setStatus(self, status):
+        """Establece el estado del item y actualiza su estilo"""
+        self._status = status
+        self._updateStyle()
+    
+    def _updateStyle(self):
+        """Actualiza el estilo visual según el estado"""
+        if self._status == STATUS_CHECKING:
+            self.setBackground(QBrush(QColor(240, 240, 255)))  # Azul muy claro
+            self.setForeground(QBrush(QColor(70, 70, 180)))    # Azul oscuro
+            self.setFont(QFont("Arial", 9, QFont.Bold))
+            self.setText(self.text() + " (Verificando...)")
+        elif self._status == STATUS_OK:
+            self.setBackground(QBrush(QColor(200, 255, 200)))  # Verde claro
+            self.setForeground(QBrush(QColor(0, 120, 0)))      # Verde oscuro
+            self.setFont(QFont("Arial", 9, QFont.Bold))
+        elif self._status == STATUS_WARNING:
+            self.setBackground(QBrush(QColor(255, 240, 180)))  # Amarillo
+            self.setForeground(QBrush(QColor(150, 100, 0)))    # Marrón
+            self.setFont(QFont("Arial", 9, QFont.Bold))
+        elif self._status == STATUS_ERROR:
+            self.setBackground(QBrush(QColor(255, 200, 200)))  # Rojo claro
+            self.setForeground(QBrush(QColor(180, 0, 0)))      # Rojo
+            self.setFont(QFont("Arial", 9, QFont.Bold))
+        else:  # STATUS_IDLE
+            self.setBackground(QBrush(QColor(255, 255, 255)))  # Blanco
+            self.setForeground(QBrush(QColor(0, 0, 0)))        # Negro
+            self.setFont(QFont("Arial", 9))
+
+class SpinnerWidget(QWidget):
+    """Widget de spinner para indicar carga"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout()
+        layout.setContentsMargins(2, 2, 2, 2)
+        
+        # Crear label para el spinner
+        self.spinner_label = QLabel()
+        
+        # Cargar GIF animado (asegúrate de crear/conseguir este archivo)
+        # Puedes usar un GIF existente o crear uno
+        self.spinner = QMovie("icons/spinner.gif")
+        self.spinner.setScaledSize(QSize(16, 16))
+        self.spinner_label.setMovie(self.spinner)
+        
+        # Texto de estado
+        self.status_label = QLabel("Verificando...")
+        
+        # Añadir al layout
+        layout.addWidget(self.spinner_label)
+        layout.addWidget(self.status_label)
+        layout.addStretch()
+        
+        self.setLayout(layout)
+        
+    def start(self):
+        """Inicia la animación"""
+        self.spinner.start()
+        self.show()
+        
+    def stop(self):
+        """Detiene la animación"""
+        self.spinner.stop()
+        self.hide()
+        
+class ServiceCheckerThread(QThread):
+    """Thread para verificar servicios en segundo plano"""
+    
+    # Señales para comunicar resultados
+    finished = pyqtSignal(str, bool, str)  # service_name, success, message
+    progress = pyqtSignal(str, str)        # service_name, status_message
+    
+    def __init__(self, parent, service_name, service_data, soap_client, rest_client, persistence):
+        super().__init__(parent)
+        self.service_name = service_name
+        self.service_data = service_data
+        self.soap_client = soap_client
+        self.rest_client = rest_client
+        self.persistence = persistence
+        
+    def run(self):
+        """Ejecuta la verificación del servicio en segundo plano"""
+        try:
+            # Emitir progreso
+            self.progress.emit(self.service_name, "Iniciando verificación...")
+            
+            # Determinar el tipo de servicio
+            service_type = self.service_data.get('type', 'SOAP')
+            
+            # Obtener configuraciones de timeout y reintentos
+            timeout = self.service_data.get('request_timeout', 30)
+            max_retries = self.service_data.get('max_retries', 1)
+            
+            # Verificar según tipo
+            if service_type == 'SOAP':
+                # Verificar datos requeridos
+                if not self.service_data.get('wsdl_url') or not self.service_data.get('request_xml'):
+                    self.finished.emit(self.service_name, False, "Faltan datos para verificar servicio SOAP")
+                    return
+                
+                # Emitir progreso
+                self.progress.emit(self.service_name, "Conectando al servicio SOAP...")
+                
+                # Enviar request SOAP
+                wsdl_url = self.service_data.get('wsdl_url')
+                request_xml = self.service_data.get('request_xml')
+                
+                success, result = self.soap_client.send_raw_request(
+                    wsdl_url, 
+                    request_xml,
+                    timeout=timeout,
+                    max_retries=max_retries
+                )
+            else:  # REST
+                # Verificar datos requeridos
+                if not self.service_data.get('url'):
+                    self.finished.emit(self.service_name, False, "Falta URL para verificar servicio REST")
+                    return
+                
+                # Emitir progreso
+                self.progress.emit(self.service_name, "Conectando al servicio REST...")
+                
+                # Preparar parámetros REST
+                url = self.service_data.get('url')
+                method = self.service_data.get('method', 'GET')
+                headers = self.service_data.get('headers', {})
+                params = self.service_data.get('params', {})
+                json_data = self.service_data.get('json_data')
+                
+                # Enviar request REST
+                success, result = self.rest_client.send_request(
+                    url=url,
+                    method=method,
+                    headers=headers,
+                    params=params,
+                    json_data=json_data,
+                    timeout=timeout,
+                    max_retries=max_retries
+                )
+            
+            # Emitir progreso
+            self.progress.emit(self.service_name, "Procesando respuesta...")
+            
+            # Proceso de validación
+            if not success:
+                # Guardar resultado de error
+                self.persistence.update_request_status(self.service_name, 'failed', result)
+                self.finished.emit(self.service_name, False, result.get('error', 'Error desconocido'))
+            else:
+                # Validar respuesta
+                validation_schema = self.service_data.get('validation_pattern', {})
+                
+                valid, message, level = self.soap_client.validate_response_advanced(
+                    result['response'], validation_schema
+                )
+                
+                if not valid:
+                    if level == "failed":
+                        # Fallo conocido
+                        self.persistence.update_request_status(self.service_name, 'failed', {
+                            'response': result['response'],
+                            'validation_message': message
+                        })
+                        self.finished.emit(self.service_name, False, f"Fallo: {message}")
+                    else:
+                        # Error de validación
+                        self.persistence.update_request_status(self.service_name, 'invalid', {
+                            'response': result['response'],
+                            'validation_error': message
+                        })
+                        self.finished.emit(self.service_name, False, f"Validación fallida: {message}")
+                elif level == "warning":
+                    # Advertencia
+                    self.persistence.update_request_status(self.service_name, 'warning', {
+                        'response': result['response'],
+                        'validation_message': message
+                    })
+                    self.finished.emit(self.service_name, True, f"Advertencia: {message}")
+                else:
+                    # Éxito
+                    self.persistence.update_request_status(self.service_name, 'ok', {
+                        'response': result['response']
+                    })
+                    self.finished.emit(self.service_name, True, "Verificación exitosa")
+            
+        except Exception as e:
+            # Error general
+            self.persistence.update_request_status(self.service_name, 'error', {
+                'error': str(e)
+            })
+            self.finished.emit(self.service_name, False, str(e))

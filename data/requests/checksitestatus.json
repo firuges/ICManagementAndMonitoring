@@ -3,13 +3,44 @@
   "description": "dassad",
   "group": "Soap Caja Social",
   "type": "REST",
-  "validation_pattern": "jsonCopiar{\n  \"success_field\": \"estadoRespuesta\",\n  \"success_values\": [\"OK\"],\n  \"warning_values\": [\"2001\", \"2002\"],\n  \"failed_values\": [\"4001\", \"4002\", \"4003\", \"4004\"],\n  \"expected_fields\": {\n    \"mensajeUsuario\": null,\n    \"codigoOperacion\": null\n  }\n}\n}",
+  "validation_pattern": {
+    "alternative_paths": [
+      {
+        "field": "code",
+        "success_values": [
+          "200",
+          "201",
+          "OK"
+        ]
+      }
+    ],
+    "expected_fields": {
+      "data": null
+    },
+    "failed_values": [
+      "ERROR",
+      "FAILED",
+      "INVALID"
+    ],
+    "success_field": "estadoRespuesta",
+    "success_values": [
+      "success",
+      "OK",
+      "200"
+    ],
+    "validation_strategy": "flexible",
+    "warning_values": [
+      "PENDING",
+      "IN_PROGRESS",
+      "WARNING"
+    ]
+  },
   "monitor_interval": 15,
   "monitor_enabled": true,
   "add_to_system": true,
-  "request_timeout": 30,
+  "request_timeout": 20,
   "max_retries": 1,
-  "status": "active",
+  "status": "ok",
   "url": "https://localhost:5005/api/sitesCustom/CheckSiteStatus",
   "method": "POST",
   "headers": {
@@ -23,10 +54,11 @@
     "SiteName": "booster036"
   },
   "created_at": "2025-03-22T00:44:09.514710",
-  "last_checked": "2025-03-22T18:42:09.220294",
+  "last_checked": "2025-03-24T10:44:59.482734",
   "last_response": {
     "response": {
       "estadoRespuesta": "OK",
+      "siteStatus": "Cliente no existe",
       "result": {
         "value": "0",
         "valueName": "Success",
@@ -35,5 +67,5 @@
       }
     }
   },
-  "updated_at": "2025-03-22T20:40:56.718425"
+  "updated_at": "2025-03-24T10:44:59.482734"
 }

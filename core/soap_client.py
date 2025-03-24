@@ -568,123 +568,195 @@ class SOAPClient:
             logger.error(f"Error al registrar detalles SOAP: {str(e)}")
     
     
+    # Esta función debe reemplazar la función validate_response en rest_client.py
+
     def validate_response(self, response: Dict[str, Any], 
-                     expected_patterns: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
+                        validation_schema: Optional[Dict[str, Any]] = None) -> Tuple[bool, str, str]:
         """
-        Valida la respuesta SOAP contra patrones esperados con manejo mejorado y diagnóstico.
+        Valida la respuesta REST con reglas avanzadas configurables.
+        Funciona de manera idéntica a validate_response_advanced en SOAPClient.
         
         Args:
-            response (Dict[str, Any]): Respuesta SOAP a validar
-            expected_patterns (Dict[str, Any], optional): Patrones esperados
+            response (Dict[str, Any]): Respuesta REST a validar
+            validation_schema (Dict[str, Any], optional): Esquema de validación
             
         Returns:
-            Tuple[bool, str]: (éxito, mensaje descriptivo)
+            Tuple[bool, str, str]: (éxito, mensaje, nivel: 'success'|'warning'|'failed'|'error')
         """
-        # Si no hay patrones, consideramos válida la respuesta
-        if not expected_patterns:
-            return True, "Respuesta recibida correctamente (sin validación de contenido)"
+        # Si no hay esquema de validación, éxito por defecto
+        if not validation_schema:
+            return True, "Respuesta recibida (sin validación de reglas)", "success"
         
-        # Validación de tipo de respuesta
-        if response is None:
-            logger.warning("Se recibió una respuesta nula para validar")
-            return False, "No se puede validar una respuesta nula"
-
-        # Comprobar caso especial: solo validar 'status'
-        if len(expected_patterns) == 1 and 'status' in expected_patterns:
-            expected_status = expected_patterns['status']
-            # Para este caso especial, cualquier respuesta no nula es válida
-            # ya que solo verificamos que el servicio respondió
-            if expected_status == 'ok':
-                return True, f"El servicio respondió correctamente"
+        # Inicialización segura del esquema
+        if validation_schema is None:
+            validation_schema = {}
+        elif isinstance(validation_schema, str):
+            try:
+                # Intentar convertir a diccionario si es un string JSON
+                import json
+                validation_schema = json.loads(validation_schema)
+            except:
+                # Si no es un JSON válido, usar esquema simple
+                validation_schema = {"status": "ok"}
         
-        # Manejo de tipos no estándar
-        if not isinstance(response, dict) and not hasattr(response, '__dict__'):
-            logger.warning(f"Tipo de respuesta inesperado: {type(response)}")
-            # Si solo esperamos status, podemos ser permisivos
-            if len(expected_patterns) == 1 and 'status' in expected_patterns and expected_patterns['status'] == 'ok':
-                return True, "Respuesta con formato inesperado aceptada como válida"
-            else:
-                return False, f"Tipo de respuesta no soportado para validación: {type(response)}"
+        # Depuración detallada del esquema recibido
+        self.logger.debug(f"Esquema de validación: {validation_schema}")
         
-        # Proceso estándar de validación
-        try:
-            # Diagnóstico detallado para respuestas
-            logger.debug(f"=== DIAGNÓSTICO DE VALIDACIÓN ===")
-            logger.debug(f"Respuesta recibida tipo: {type(response)}")
+        # Caso especial: esquema simple heredado
+        if len(validation_schema) == 1 and "status" in validation_schema:
+            if validation_schema["status"] == "ok":
+                return True, "El servicio respondió correctamente", "success"
+        
+        # Aplanar respuesta para búsqueda flexible de campos
+        # Importar la función del SOAPClient para mantener consistencia
+        from core.soap_client import SOAPClient
+        soap_client = SOAPClient()
+        flat_response = soap_client._flatten_dict(response)
+        
+        # Depuración: Mostrar campos disponibles en la respuesta
+        self.logger.debug(f"Campos disponibles en respuesta: {list(flat_response.keys())[:20]}")
+        
+        # Obtener configuración del esquema
+        success_field = validation_schema.get("success_field", "status")  # Por defecto "status" para REST
+        success_values = validation_schema.get("success_values", ["200", "OK", "success"])
+        warning_values = validation_schema.get("warning_values", [])
+        failed_values = validation_schema.get("failed_values", [])
+        expected_fields = validation_schema.get("expected_fields", {})
+        validation_strategy = validation_schema.get("validation_strategy", "flexible")
+        
+        # Convertir valores a cadenas para comparación consistente
+        if success_values and not isinstance(success_values, list):
+            success_values = [str(success_values)]
+        if warning_values and not isinstance(warning_values, list):
+            warning_values = [str(warning_values)]
+        if failed_values and not isinstance(failed_values, list):
+            failed_values = [str(failed_values)]
+        
+        # Estos deben ser listas
+        success_values = [str(v) for v in success_values]
+        warning_values = [str(v) for v in warning_values]
+        failed_values = [str(v) for v in failed_values]
+        
+        # Buscar el campo principal de éxito/error
+        field_value = None
+        field_found = False
+        
+        # 1. Búsqueda exacta
+        if success_field in flat_response:
+            field_value = flat_response[success_field]
+            field_found = True
+            self.logger.debug(f"Campo '{success_field}' encontrado directamente")
+        else:
+            # 2. Búsqueda flexible
+            for key in flat_response.keys():
+                # Coincidencia al final de la clave o clave parcial
+                if key.endswith(success_field) or success_field in key.split('.'):
+                    field_value = flat_response[key]
+                    field_found = True
+                    self.logger.debug(f"Campo '{success_field}' encontrado como '{key}'")
+                    break
+        
+        # Evaluar resultado según el campo principal
+        if field_found:
+            # Convertir a string para comparación consistente
+            str_value = str(field_value).strip()
+            self.logger.debug(f"Valor encontrado: '{str_value}', comparando con success_values: {success_values}")
             
-            # Limitar tamaño de respuesta en logs para evitar saturación
-            resp_str = str(response)
-            if len(resp_str) > 500:
-                resp_str = resp_str[:500] + "..."
-            logger.debug(f"Respuesta contenido: {resp_str}")
-            
-            logger.debug(f"Patrones esperados: {expected_patterns}")
-
-            # Si la respuesta es un diccionario, mostrar las claves
-            if isinstance(response, dict):
-                logger.debug(f"Claves en respuesta: {list(response.keys())}")
-            
-            # IMPORTANTE: Aplanar respuesta ANTES de acceder a sus claves
-            flat_response = self._flatten_dict(response)
-            
-            # Ahora podemos acceder de forma segura a flat_response
-            flat_keys = list(flat_response.keys())
-            logger.debug(f"Total de claves aplanadas: {len(flat_keys)}")
-            if flat_keys:
-                sample_keys = flat_keys[:min(10, len(flat_keys))]
-                logger.debug(f"Muestra de claves aplanadas: {sample_keys}")
-            
-            # Validar cada patrón
-            for key_path, expected_value in expected_patterns.items():
-                # Omitir validación de 'status' si ya se ha manejado antes
-                if key_path == 'status' and len(expected_patterns) == 1:
-                    continue
-                    
-                found = False
-                actual_value = None
-                
-                # 1. Búsqueda exacta
-                if key_path in flat_response:
-                    found = True
-                    actual_value = flat_response[key_path]
-                    logger.debug(f"Campo '{key_path}' encontrado directamente")
-                else:
-                    # 2. Búsqueda por coincidencia parcial
-                    for resp_key in flat_response.keys():
-                        # Verificar coincidencia al final de la clave
-                        if resp_key.endswith(key_path):
-                            found = True
-                            actual_value = flat_response[resp_key]
-                            logger.debug(f"Campo '{key_path}' encontrado como '{resp_key}'")
-                            break
+            # Verificar si es éxito
+            if str_value in success_values:
+                # Verificar campos adicionales si están definidos
+                if expected_fields:
+                    for field_name, expected_value in expected_fields.items():
+                        # Buscar el campo esperado
+                        field_exists = False
+                        actual_value = None
                         
-                        # Verificar si la clave está dentro de otra
-                        if key_path in resp_key.split('.'):
-                            found = True
-                            actual_value = flat_response[resp_key]
-                            logger.debug(f"Campo '{key_path}' encontrado dentro de '{resp_key}'")
+                        # Búsqueda exacta
+                        if field_name in flat_response:
+                            field_exists = True
+                            actual_value = flat_response[field_name]
+                        else:
+                            # Búsqueda flexible
+                            for key in flat_response.keys():
+                                if key.endswith(field_name) or field_name in key.split('.'):
+                                    field_exists = True
+                                    actual_value = flat_response[key]
+                                    break
+                        
+                        # Verificar existencia del campo
+                        if not field_exists:
+                            if validation_strategy == "strict":
+                                return False, f"Campo esperado '{field_name}' no encontrado", "error"
+                            self.logger.warning(f"Campo esperado '{field_name}' no encontrado, pero estrategia es '{validation_strategy}'")
+                        
+                        # Verificar valor si se especificó
+                        elif expected_value is not None:
+                            str_expected = str(expected_value).strip()
+                            str_actual = str(actual_value).strip()
+                            
+                            if str_expected != str_actual and validation_strategy == "strict":
+                                return False, f"Valor incorrecto para '{field_name}'. Esperado: {expected_value}, Obtenido: {actual_value}", "error"
+                            elif str_expected != str_actual:
+                                self.logger.warning(f"Valor incorrecto para '{field_name}', pero estrategia es '{validation_strategy}'")
+                
+                # Todos los criterios cumplidos
+                return True, f"Respuesta validada correctamente", "success"
+                
+            # Verificar si es advertencia
+            elif str_value in warning_values:
+                return True, f"Respuesta con código de advertencia: {field_value}", "warning"
+                
+            # Verificar si es fallo (nueva categoría)
+            elif str_value in failed_values:
+                return False, f"Respuesta con código de fallo: {field_value}", "failed"
+                
+            # Es un error
+            else:
+                return False, f"Valor incorrecto para '{success_field}'. Esperado: {success_values}, Obtenido: {field_value}", "error"
+        
+        # Si no encontramos el campo principal pero hay rutas alternativas
+        if "alternative_paths" in validation_schema:
+            for alt_path in validation_schema["alternative_paths"]:
+                alt_field = alt_path.get("field")
+                alt_values = alt_path.get("success_values", [])
+                
+                # Búsqueda del campo alternativo
+                alt_found = False
+                alt_value = None
+                
+                # Búsqueda exacta
+                if alt_field in flat_response:
+                    alt_found = True
+                    alt_value = flat_response[alt_field]
+                else:
+                    # Búsqueda flexible
+                    for key in flat_response.keys():
+                        if key.endswith(alt_field) or alt_field in key.split('.'):
+                            alt_found = True
+                            alt_value = flat_response[key]
                             break
                 
-                # Si no se encontró, reportar error
-                if not found:
-                    logger.warning(f"Campo '{key_path}' no encontrado en respuesta. Claves disponibles: {sample_keys}")
-                    return False, f"Campo esperado '{key_path}' no encontrado en la respuesta"
-                
-                # Si el valor esperado no es None, comparar valores
-                if expected_value is not None:
-                    # Convertir ambos a string para comparación flexible
-                    str_expected = str(expected_value).strip()
-                    str_actual = str(actual_value).strip()
-                    
-                    if str_expected != str_actual:
-                        logger.warning(f"Valor incorrecto para '{key_path}'. Esperado: '{str_expected}', Obtenido: '{str_actual}'")
-                        return False, f"Valor incorrecto para '{key_path}'. Esperado: {expected_value}, Obtenido: {actual_value}"
+                if alt_found:
+                    str_alt_value = str(alt_value).strip()
+                    if str_alt_value in [str(v).strip() for v in alt_values]:
+                        return True, f"Validación exitosa mediante ruta alternativa: {alt_field}", "success"
+        
+        # Si llegamos aquí, no encontramos validación exitosa
+        
+        # Modo permisivo - cualquier respuesta no vacía es éxito
+        if validation_strategy == "permissive":
+            return True, "Respuesta aceptada en modo permisivo", "success"
             
-            return True, "Respuesta validada correctamente"
-            
-        except Exception as e:
-            logger.error(f"Error durante validación: {str(e)}", exc_info=True)
-            return False, f"Error durante validación: {str(e)}"
+        # Verificar opción para tratar respuestas vacías como éxito
+        if validation_schema.get("treat_empty_as_success", False) and not response:
+            return True, "Respuesta vacía aceptada como válida", "success"
+        
+        # Validación fallida
+        if not field_found:
+            self.logger.warning(f"Campo de validación '{success_field}' no encontrado en la respuesta. Claves disponibles: {list(flat_response.keys())[:20]}")
+            return False, f"Campo de validación '{success_field}' no encontrado en la respuesta", "error"
+        else:
+            return False, f"Valor no esperado en '{success_field}': {field_value}", "error"
     
     # Localizar la función _zeep_object_to_dict en soap_client.py
     def _zeep_object_to_dict(self, obj) -> Dict[str, Any]:
@@ -1116,6 +1188,19 @@ class SOAPClient:
         expected_fields = validation_schema.get("expected_fields", {})
         validation_strategy = validation_schema.get("validation_strategy", "flexible")
         
+        # Convertir valores a cadenas para comparación consistente
+        if success_values and not isinstance(success_values, list):
+            success_values = [str(success_values)]
+        if warning_values and not isinstance(warning_values, list):
+            warning_values = [str(warning_values)]
+        if failed_values and not isinstance(failed_values, list):
+            failed_values = [str(failed_values)]
+        
+        # Estos deben ser listas
+        success_values = [str(v) for v in success_values]
+        warning_values = [str(v) for v in warning_values]
+        failed_values = [str(v) for v in failed_values]
+        
         # Buscar el campo principal de éxito/error
         field_value = None
         field_found = False
@@ -1124,11 +1209,12 @@ class SOAPClient:
         if success_field in flat_response:
             field_value = flat_response[success_field]
             field_found = True
+            logger.debug(f"Campo '{success_field}' encontrado directamente")
         else:
             # 2. Búsqueda flexible
             for key in flat_response.keys():
-                # Coincidencia al final de la clave
-                if key.endswith(success_field):
+                # Coincidencia al final de la clave o clave parcial
+                if key.endswith(success_field) or success_field in key.split('.'):
                     field_value = flat_response[key]
                     field_found = True
                     logger.debug(f"Campo '{success_field}' encontrado como '{key}'")
@@ -1138,18 +1224,54 @@ class SOAPClient:
         if field_found:
             # Convertir a string para comparación consistente
             str_value = str(field_value).strip()
-            
+            logger.debug(f"Valor encontrado: '{str_value}', comparando con success_values: {success_values}")
+        
             # Verificar si es éxito
-            if str_value in [str(v).strip() for v in success_values]:
-                # Código de verificación de campos adicionales...
+            if str_value in success_values:
+                # Verificar campos adicionales si están definidos
+                if expected_fields:
+                    for field_name, expected_value in expected_fields.items():
+                        # Buscar el campo esperado
+                        field_exists = False
+                        actual_value = None
+                        
+                        # Búsqueda exacta
+                        if field_name in flat_response:
+                            field_exists = True
+                            actual_value = flat_response[field_name]
+                        else:
+                            # Búsqueda flexible
+                            for key in flat_response.keys():
+                                if key.endswith(field_name) or field_name in key.split('.'):
+                                    field_exists = True
+                                    actual_value = flat_response[key]
+                                    break
+                        
+                        # Verificar existencia del campo
+                        if not field_exists:
+                            if validation_strategy == "strict":
+                                return False, f"Campo esperado '{field_name}' no encontrado", "error"
+                            logger.warning(f"Campo esperado '{field_name}' no encontrado, pero estrategia es '{validation_strategy}'")
+                        
+                        # Verificar valor si se especificó
+                        elif expected_value is not None:
+                            str_expected = str(expected_value).strip()
+                            str_actual = str(actual_value).strip()
+                            
+                            if str_expected != str_actual and validation_strategy == "strict":
+                                return False, f"Valor incorrecto para '{field_name}'. Esperado: {expected_value}, Obtenido: {actual_value}", "error"
+                            elif str_expected != str_actual:
+                                logger.warning(f"Valor incorrecto para '{field_name}', pero estrategia es '{validation_strategy}'")
+                
+                # Todos los criterios cumplidos
                 return True, f"Respuesta validada correctamente", "success"
                 
             # Verificar si es advertencia
-            elif str_value in [str(v).strip() for v in warning_values]:
+            elif str_value in warning_values:
                 return True, f"Respuesta con código de advertencia: {field_value}", "warning"
                 
             # Verificar si es fallo (nueva categoría)
-            elif str_value in [str(v).strip() for v in failed_values]:
+            elif str_value in failed_values:
                 return False, f"Respuesta con código de fallo: {field_value}", "failed"
                 
             # Es un error

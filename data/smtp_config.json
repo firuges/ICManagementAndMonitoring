@@ -1,0 +1,8 @@
+{
+  "server": "smtp.gmail.com",
+  "port": 587,
+  "use_tls": true,
+  "username": "maximilianocesan@gmail.com",
+  "password": "tmcf jiim scfm gqxw",
+  "from_email": "maximilianocesan@gmail.com"
+}
