@@ -674,6 +674,12 @@ class MonitoringPanel(QWidget):
                 check_button.clicked.connect(lambda checked, name=request.get('name'): 
                                             self.check_service(name))
                 
+                diagnostic_button = QPushButton("Diagnóstico")
+                diagnostic_button.setMaximumWidth(80)
+                diagnostic_button.clicked.connect(lambda checked, name=request.get('name'): 
+                                                self._diagnose_connection(name))
+
+                
                 # Botón de Enable/Disable con mejor estilo visual
                 is_enabled = request.get('monitor_enabled', True)
                 toggle_button = QPushButton()
@@ -704,6 +710,8 @@ class MonitoringPanel(QWidget):
                 # Añadir botones al layout
                 actions_layout.addWidget(check_button)
                 actions_layout.addWidget(toggle_button)
+                actions_layout.addWidget(diagnostic_button)
+                
                 
                 # Ajustar propiedades del widget
                 actions_widget.setLayout(actions_layout)
@@ -1545,6 +1553,73 @@ class MonitoringPanel(QWidget):
         """)
         
         return dialog
+    
+    def _diagnose_connection(self, service_name: str):
+        """Diagnostica problemas de conexión para un servicio específico"""
+        try:
+            # Cargar datos del servicio
+            service_data = self.persistence.load_soap_request(service_name)
+            
+            if not service_data:
+                self._log_event(f"Error: No se pudo cargar servicio {service_name}", "error")
+                return
+            
+            # Determinar tipo y URL
+            service_type = service_data.get('type', 'SOAP')
+            
+            if service_type == 'SOAP':
+                url = service_data.get('wsdl_url', '')
+            else:  # REST
+                url = service_data.get('url', '')
+            
+            if not url:
+                self._log_event(f"Error: URL no encontrada para servicio {service_name}", "error")
+                return
+            
+            # Crear diálogo de progreso
+            self._log_event(f"Ejecutando diagnóstico de conexión para {service_name}...", "info")
+            
+            # Importar utilidad de validación
+            from utils import validate_endpoint_url
+            
+            # Probar con diferentes timeouts
+            result = {
+                "url": url,
+                "service_name": service_name,
+                "service_type": service_type,
+                "tests": []
+            }
+            
+            timeouts = [5, 15, 30]
+            for timeout in timeouts:
+                start_time = time.time()
+                success = validate_endpoint_url(url, timeout=timeout)
+                elapsed = time.time() - start_time
+                
+                result["tests"].append({
+                    "timeout": timeout,
+                    "success": success,
+                    "elapsed": elapsed
+                })
+                
+                self._log_event(f"Prueba con timeout={timeout}s: {'Éxito' if success else 'Fallido'} en {elapsed:.2f}s", 
+                            "info" if success else "warning")
+            
+            # Mostrar resultados en diálogo
+            if any(test["success"] for test in result["tests"]):
+                # Si alguna prueba tuvo éxito
+                best_test = next(test for test in result["tests"] if test["success"])
+                self._log_event(f"Conectividad confirmada con timeout={best_test['timeout']}s. "
+                            f"Actualice la configuración del servicio.", "info")
+            else:
+                # Si todas las pruebas fallaron
+                self._log_event(f"Error de conexión confirmado para {url}. "
+                            f"Verifique la red o la disponibilidad del servicio.", "error")
+            
+            return result
+            
+        except Exception as e:
+            self._log_event(f"Error en diagnóstico: {str(e)}", "error")
 
 class CustomTableWidgetItem(QTableWidgetItem):
     """Item de tabla personalizado con soporte para estados"""
@@ -1597,7 +1672,7 @@ class SpinnerWidget(QWidget):
         # Cargar GIF animado (asegúrate de crear/conseguir este archivo)
         # Puedes usar un GIF existente o crear uno
         self.spinner = QMovie("icons/spinner.gif")
-        self.spinner.setScaledSize(QSize(16, 16))
+        self.spinner.setScaledSize(QSize(36, 36))
         self.spinner_label.setMovie(self.spinner)
         
         # Texto de estado

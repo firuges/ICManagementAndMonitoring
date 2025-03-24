@@ -112,27 +112,11 @@ class RESTClient:
                 }
         
     def validate_response(self, response: Dict[str, Any], 
-                     validation_schema: Optional[Dict[str, Any]] = None) -> Tuple[bool, str, str]:
+                   validation_schema: Optional[Dict[str, Any]] = None) -> Tuple[bool, str, str]:
         """
         Valida la respuesta REST con reglas avanzadas configurables.
-        
-        Args:
-            response (Dict[str, Any]): Respuesta REST a validar
-            validation_schema (Dict[str, Any], optional): Esquema de validación
-            
-        Returns:
-            Tuple[bool, str, str]: (éxito, mensaje, nivel: 'success'|'warning'|'failed'|'error')
+        Delegación a SOAPClient para mantener consistencia.
         """
-        # Implementación similar a tu validate_response_advanced en SOAPClient
-        # Pero adaptada a las estructuras típicas de REST (JSON)
-        
-        # Ejemplo simplificado:
-        if not validation_schema:
-            # Si no hay esquema, verificamos solo el status_code
-            if 'status_code' in response and 200 <= response['status_code'] < 300:
-                return True, "Respuesta HTTP correcta", "success"
-            else:
-                return False, f"Status code incorrecto: {response.get('status_code', 'desconocido')}", "error"
-        
-        # El resto de la implementación sería similar a tu función actual
-        # Adaptándola a las convenciones REST
+        from core.soap_client import SOAPClient
+        soap_client = SOAPClient()
+        return soap_client.validate_response_advanced(response, validation_schema)

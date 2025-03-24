@@ -5,6 +5,7 @@ import xmltodict
 import zeep
 import json
 import datetime
+import requests
 from typing import Dict, Any, Tuple, Optional, Union, List
 from zeep.exceptions import TransportError, XMLSyntaxError
 def json_serial(obj):
@@ -48,7 +49,10 @@ class SOAPClient:
         
         return self.clients_cache[wsdl_url]
     
-    def send_raw_request(self, wsdl_url: str, request_xml: str, timeout: int = 30, max_retries: int = 1) -> Tuple[bool, Dict[str, Any]]:
+    def send_raw_request(self, wsdl_url: str, request_xml: str, 
+                    timeout: int = 30, 
+                    max_retries: int = 3,
+                    validate_url: bool = True) -> Tuple[bool, Dict[str, Any]]:
         """
         Envía un request SOAP XML directamente con manejo robusto de operaciones.
         
@@ -59,6 +63,13 @@ class SOAPClient:
         Returns:
             Tuple[bool, Dict[str, Any]]: (éxito, resultado/error)
         """
+        if validate_url:
+            from .utils import validate_endpoint_url
+            if not validate_endpoint_url(wsdl_url, timeout=5):
+                return False, {
+                    "error": f"URL del WSDL no accesible: {wsdl_url}",
+                    "status": "url_error"
+                }
         retry_count = 0
         while retry_count <= max_retries:
             try:
@@ -246,35 +257,69 @@ class SOAPClient:
                         "response": response_dict,
                         "status": "ok"
                     }
-                except zeep.exceptions.Timeout:
+                except requests.exceptions.Timeout:  
                     retry_count += 1
                     if retry_count <= max_retries:
                         logger.warning(f"Timeout al intentar conectar con el servicio. Reintentando ({retry_count}/{max_retries})...")
-                        time.sleep(1)  # Esperar 1 segundo antes de reintentar
+                        time.sleep(1 * retry_count)  # Esperar más tiempo en cada reintento
                     else:
                         logger.error(f"Error de timeout después de {max_retries} reintentos")
                         return False, {
-                            "error": f"Timeout al intentar conectar con el servicio después de {max_retries} reintentos",
+                            "error": f"Timeout al intentar conectar con el servicio después de {max_retries} reintentos: {wsdl_url}",
                             "status": "timeout"
                         }
-                except Exception as e:
+                except (requests.exceptions.ConnectionError, ConnectionError, ConnectionRefusedError, ConnectionAbortedError) as e:
+                    # Errores de conexión
                     retry_count += 1
-                    if retry_count <= max_retries and isinstance(e, (ConnectionError, ConnectionRefusedError, ConnectionAbortedError)):
+                    if retry_count <= max_retries:
                         logger.warning(f"Error de conexión. Reintentando ({retry_count}/{max_retries})...")
-                        time.sleep(1)  # Esperar 1 segundo antes de reintentar
+                        time.sleep(1 * retry_count)  # Esperar más tiempo en cada reintento
                     else:
                         logger.error(f"Error al enviar request SOAP: {str(e)}", exc_info=True)
                         return False, {
-                            "error": f"Error inesperado: {str(e)}",
-                            "status": "error"
+                            "error": f"Error de conexión: {str(e)}",
+                            "status": "connection_error"
                         }
-                        
                 except zeep.exceptions.Fault as fault:
+                    # SOAP Faults
                     logger.error(f"Error SOAP Fault: {str(fault)}")
                     return False, {
                         "error": f"SOAP Fault: {str(fault)}",
                         "status": "soap_fault" 
                     }
+                except Exception as e:
+                    retry_count += 1
+                    
+                    # Determinar si el error es de tipo timeout o conexión
+                    is_timeout = "timeout" in str(e).lower() or isinstance(e, requests.exceptions.Timeout)
+                    is_connection = isinstance(e, (requests.exceptions.ConnectionError, ConnectionError, 
+                                            ConnectionRefusedError, ConnectionAbortedError))
+                    
+                    # Si es un error recuperable y no excedimos los reintentos
+                    if retry_count <= max_retries and (is_timeout or is_connection):
+                        error_type = "timeout" if is_timeout else "conexión"
+                        logger.warning(f"Error de {error_type}. Reintentando ({retry_count}/{max_retries})...")
+                        time.sleep(1 * retry_count)  # Esperar más tiempo en cada reintento
+                    else:
+                        # Error no recuperable o máximo de reintentos alcanzado
+                        if is_timeout:
+                            status = "timeout"
+                            error_msg = f"Timeout al intentar conectar con el servicio después de {max_retries} reintentos"
+                        elif is_connection:
+                            status = "connection_error"
+                            error_msg = f"Error de conexión después de {max_retries} reintentos"
+                        elif isinstance(e, zeep.exceptions.Fault):
+                            status = "soap_fault"
+                            error_msg = f"SOAP Fault: {str(e)}"
+                        else:
+                            status = "error"
+                            error_msg = f"Error inesperado: {str(e)}"
+                            
+                        logger.error(f"{error_msg}", exc_info=True)
+                        return False, {
+                            "error": error_msg,
+                            "status": status
+                        }
                     
             except Exception as e:
                 logger.error(f"Error al enviar request SOAP: {str(e)}", exc_info=True)
@@ -282,6 +327,31 @@ class SOAPClient:
                     "error": f"Error inesperado: {str(e)}",
                     "status": "error"
                 }
+    
+    def _validate_wsdl_url(self, wsdl_url: str) -> bool:
+        """
+        Valida que la URL del WSDL sea accesible.
+        
+        Args:
+            wsdl_url (str): URL del WSDL
+            
+        Returns:
+            bool: True si la URL es accesible
+        """
+        try:
+            import requests
+            # Intento HEAD primero para no descargar todo el WSDL
+            response = requests.head(wsdl_url, timeout=5, verify=False)
+            
+            # Si HEAD falla, puede ser porque el servidor no lo soporta
+            if response.status_code >= 400:
+                # Intentar con GET
+                response = requests.get(wsdl_url, timeout=5, verify=False)
+                
+            return response.status_code < 400
+        except Exception as e:
+            logger.warning(f"Error al validar URL del WSDL {wsdl_url}: {str(e)}")
+            return False
     
     def _save_debug_xml(self, service_name: str, request_xml: str, response_xml: str) -> None:
         """
@@ -380,13 +450,33 @@ class SOAPClient:
             
             # Realizar petición HTTP directamente
             import requests
-            response = requests.post(
-                service_url,
-                data=request_xml,
-                headers=headers,
-                verify=False,  # Considera la seguridad en entornos de producción
-                timeout=30
-            )
+            import time
+            
+            # Configuración mejorada para manejo de reintentos
+            max_retries = 3
+            retry_delay = 2  # segundos
+            verify_ssl = False  # Considera cambiar a True en producción
+        
+            for retry in range(max_retries):
+                try:
+                    response = requests.post(
+                        service_url,
+                        data=request_xml,
+                        headers=headers,
+                        verify=verify_ssl,
+                        timeout=30
+                    )
+                    break  # Salir del bucle si la petición es exitosa
+                except (requests.exceptions.Timeout, 
+                        requests.exceptions.ConnectionError) as conn_err:
+                    if retry < max_retries - 1:
+                        logger.warning(f"Intento {retry+1}/{max_retries} falló: {str(conn_err)}. Reintentando en {retry_delay}s...")
+                        time.sleep(retry_delay)
+                        # Incrementar el tiempo de espera para el siguiente intento
+                        retry_delay *= 2
+                    else:
+                        # Si es el último intento, propagar el error
+                        raise
             
             # Verificar si la respuesta es exitosa
             if response.status_code != 200:
