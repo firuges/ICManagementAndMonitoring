@@ -8,14 +8,16 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt, QSize, QTimer
 
-# Importar módulos de la aplicación
-from gui.request_form import RequestForm
-from gui.email_form import EmailForm
-from gui.monitoring_panel import MonitoringPanel
-from core.persistence import PersistenceManager
-from core.soap_client import SOAPClient
-from core.notification import EmailNotifier
-from core.scheduler import SOAPMonitorScheduler
+# Módulo para determinar rutas
+def get_application_path():
+    """Obtiene el directorio base de la aplicación, compatible con .exe"""
+    if getattr(sys, 'frozen', False):
+        # Estamos ejecutando en aplicación compilada
+        return os.path.dirname(sys.executable)
+    else:
+        # Estamos ejecutando en modo script
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 # Configuración de logging
 logging.basicConfig(
@@ -27,7 +29,7 @@ logger = logging.getLogger('main_window')
 class MainWindow(QMainWindow):
     """Ventana principal de la aplicación"""
     
-    def __init__(self):
+    def __init__(self, data_path=None, logs_path=None):
         """Inicializa la ventana principal"""
         super().__init__()
         
@@ -35,11 +37,36 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Monitor de Servicios SOAP")
         self.setMinimumSize(900, 700)
         
+        # Determinar rutas de directorios
+        if data_path:
+            self.data_dir = data_path
+        else:
+            app_dir = get_application_path()
+            self.data_dir = os.path.join(app_dir, 'data')
+            
+        if logs_path:
+            self.logs_dir = logs_path
+        else:
+            app_dir = get_application_path()
+            self.logs_dir = os.path.join(app_dir, 'logs')
+        
+        # Asegurar que los directorios existen
+        os.makedirs(self.data_dir, exist_ok=True)
+        os.makedirs(self.logs_dir, exist_ok=True)
+        
         # Inicializar componentes del núcleo
-        self.persistence = PersistenceManager()
+        from core.persistence import PersistenceManager
+        from core.soap_client import SOAPClient
+        from core.notification import EmailNotifier
+        from core.scheduler import SOAPMonitorScheduler
+        
+        self.persistence = PersistenceManager(base_path=self.data_dir)
         self.soap_client = SOAPClient()
         self.notifier = EmailNotifier()
         self.scheduler = SOAPMonitorScheduler()
+        
+        # Cargar configuración del notificador
+        self._load_notifier_config()
         
         # Crear interfaz
         self._create_ui()
@@ -54,6 +81,25 @@ class MainWindow(QMainWindow):
         
         logger.info("Ventana principal inicializada")
     
+    def _load_notifier_config(self):
+        """Carga la configuración del notificador"""
+        try:
+            # Verificar si existe archivo de configuración SMTP
+            smtp_config_path = os.path.join(self.data_dir, 'smtp_config.json')
+            
+            if os.path.exists(smtp_config_path):
+                import json
+                with open(smtp_config_path, 'r', encoding='utf-8') as f:
+                    smtp_config = json.load(f)
+                
+                # Configurar notificador
+                self.notifier.configure(smtp_config)
+                logger = logging.getLogger('main_window')
+                logger.info("Configuración SMTP cargada correctamente")
+        except Exception as e:
+            logger = logging.getLogger('main_window')
+            logger.error(f"Error al cargar configuración SMTP: {str(e)}")
+            
     def _create_ui(self):
         """Crea la interfaz de usuario"""
         # Crear barra de menú
@@ -66,10 +112,16 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.setCentralWidget(self.tab_widget)
         
+        # Importar módulos de GUI
+        from gui.monitoring_panel import MonitoringPanel
+        from gui.request_form import RequestForm
+        from gui.email_form import EmailForm
+        
         # Pestaña de monitoreo
         self.monitoring_panel = MonitoringPanel(
             self.persistence, self.soap_client, self.scheduler
         )
+        
         self.tab_widget.addTab(self.monitoring_panel, "Monitoreo")
         
         # Pestaña de gestión de requests
@@ -80,10 +132,24 @@ class MainWindow(QMainWindow):
         self.email_form = EmailForm(self.persistence, self.notifier)
         self.tab_widget.addTab(self.email_form, "Configuración de Notificaciones")
         
+         # Conectar señal de configuración de email guardada
+        self.email_form.config_saved.connect(self._on_email_config_saved)
+        
         # Barra de estado
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
         self.statusBar.showMessage("Listo")
+    
+    def _on_email_config_saved(self):
+        """Manejador para cuando se guarda la configuración de email"""
+        # Recargar configuración del notificador
+        self._load_notifier_config()
+        
+        # Notificar al panel de monitoreo
+        if hasattr(self.monitoring_panel, '_load_smtp_config'):
+            self.monitoring_panel._load_smtp_config()
+        
+        self.statusBar.showMessage("Configuración de notificaciones actualizada", 3000)
     
     def _create_menu(self):
         """Crea la barra de menú"""

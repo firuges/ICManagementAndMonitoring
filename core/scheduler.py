@@ -197,16 +197,38 @@ class SOAPMonitorScheduler:
         Returns:
             str: Ruta completa al script
         """
-        # Obtener la ruta del directorio actual
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        # Subir un nivel para llegar al directorio raíz del proyecto
-        project_root = os.path.dirname(current_dir)
-        
-        # Construir la ruta al script de monitoreo
-        monitor_script = os.path.join(project_root,'core', 'monitor.py')
-        
-        return monitor_script
+        try:
+            # Determinar si estamos en un entorno compilado
+            if getattr(sys, 'frozen', False):
+                # Estamos en un entorno compilado (exe)
+                executable_path = sys.executable
+                logger.info(f"Usando ejecutable para monitoreo: {executable_path}")
+                return executable_path
+            else:
+                # Estamos en un entorno de script
+                # Obtener la ruta del directorio actual
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                
+                # Subir un nivel para llegar al directorio raíz del proyecto
+                project_root = os.path.dirname(current_dir)
+                
+                # Construir la ruta al script de monitoreo
+                monitor_script = os.path.join(project_root, 'core', 'monitor.py')
+                
+                logger.info(f"Usando script de Python para monitoreo: {monitor_script}")
+                return monitor_script
+        except Exception as e:
+            logger.error(f"Error al determinar ruta de script: {str(e)}")
+            
+            # Fallback: intentar usar la ubicación actual
+            try:
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                fallback_path = os.path.join(current_dir, '..', 'core', 'monitor.py')
+                logger.warning(f"Usando ruta de fallback: {fallback_path}")
+                return fallback_path
+            except:
+                # Último recurso: devolver un nombre de archivo básico y esperar que esté en el PATH
+                return "monitor.py"
     
     def generate_system_task(self, task_name: str, interval_minutes: int) -> bool:
         """
@@ -232,10 +254,9 @@ class SOAPMonitorScheduler:
         try:
             # Comando Python para ejecutar el script de monitoreo
             python_cmd = sys.executable
-            cmd_args = [task_name]
             
-            # Crear comando completo
-            full_cmd = f'"{python_cmd}" "{monitor_script}" {" ".join(cmd_args)}'
+            # Verificar si estamos en modo compilado
+            is_compiled = getattr(sys, 'frozen', False)
             
             # Determinar sistema operativo
             if sys.platform.startswith('win'):
@@ -247,9 +268,15 @@ class SOAPMonitorScheduler:
                 # 2. Escribir el comando en un archivo .bat
                 with open(batch_file, 'w') as f:
                     f.write(f'@echo off\n')
-                    f.write(f'"{python_cmd}" "{monitor_script}" {task_name}\n')
+                    
+                    if is_compiled:
+                        # Si es una aplicación compilada, llamar directamente al .exe con argumentos
+                        f.write(f'"{monitor_script}" {task_name}\n')
+                    else:
+                        # Si es un script, usar python para ejecutarlo
+                        f.write(f'"{python_cmd}" "{monitor_script}" {task_name}\n')
                 
-                # 3. Crear la tarea usando el archivo .bat (sin espacios problemáticos)
+                # 3. Crear la tarea usando el archivo .bat
                 task_cmd = f'schtasks /create /tn "SOAPMonitor_{task_name}" /tr "{batch_file}" /sc minute /mo {interval_minutes} /f'
                 subprocess.run(task_cmd, shell=True, check=True)
                 logger.info(f"Tarea de sistema creada en Windows para {task_name} usando script: {batch_file}")
@@ -257,7 +284,14 @@ class SOAPMonitorScheduler:
                 return True
             else:
                 # Linux/Unix - usar crontab
-                cron_schedule = f"*/{interval_minutes} * * * * {full_cmd}"
+                if is_compiled:
+                    # Si es una aplicación compilada, llamar directamente al .exe con argumentos
+                    cmd = f'"{monitor_script}" {task_name}'
+                else:
+                    # Si es un script, usar python para ejecutarlo
+                    cmd = f'"{python_cmd}" "{monitor_script}" {task_name}'
+                
+                cron_schedule = f"*/{interval_minutes} * * * * {cmd}"
                 
                 # Obtener crontab actual
                 current_crontab = subprocess.check_output("crontab -l 2>/dev/null || echo ''", shell=True, text=True)

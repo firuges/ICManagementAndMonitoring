@@ -25,12 +25,28 @@ project_root = os.path.dirname(core_dir)
 # Añadir directorio raíz al sys.path
 sys.path.append(project_root)
 
-# Ahora podemos importar sin el prefijo 'core.'
-from persistence import PersistenceManager
-from soap_client import SOAPClient
-from notification import EmailNotifier
-from rest_client import RESTClient
-
+try:
+    from core.persistence import PersistenceManager
+    from core.soap_client import SOAPClient
+    from core.notification import EmailNotifier
+    from core.rest_client import RESTClient
+except ImportError:
+    try:
+        # Si no se puede importar desde el paquete, intentar desde el directorio actual
+        from persistence import PersistenceManager
+        from soap_client import SOAPClient
+        from notification import EmailNotifier
+        from rest_client import RESTClient
+    except ImportError:
+        # Último intento: importar desde el directorio padre
+        import sys
+        import os
+        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from core.persistence import PersistenceManager
+        from core.soap_client import SOAPClient
+        from core.notification import EmailNotifier
+        from core.rest_client import RESTClient
+        
 # Configuración de logging
 logs_dir = os.path.join(project_root, 'logs')
 os.makedirs(logs_dir, exist_ok=True)
@@ -51,6 +67,46 @@ logging.basicConfig(
 logger = logging.getLogger('monitor')
 logger.info("=== Script de monitoreo iniciado ===")
 
+
+def setup_environment():
+    """Configura el entorno para garantizar que las importaciones funcionen correctamente"""
+    try:
+        # Determinar si estamos en un entorno compilado
+        is_frozen = getattr(sys, 'frozen', False)
+        
+        if is_frozen:
+            # Estamos en un entorno compilado (exe)
+            application_path = os.path.dirname(sys.executable)
+            logger.info(f"Ejecutando como aplicación compilada: {application_path}")
+            sys.path.insert(0, application_path)
+        else:
+            # Estamos ejecutando como script
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(current_dir)
+            logger.info(f"Ejecutando como script Python: {current_dir}")
+            logger.info(f"Directorio raíz del proyecto: {project_root}")
+            
+            # Añadir directorio raíz al path
+            if project_root not in sys.path:
+                sys.path.insert(0, project_root)
+            
+            # Añadir directorio core al path si es necesario
+            core_dir = os.path.join(project_root, 'core')
+            if os.path.exists(core_dir) and core_dir not in sys.path:
+                sys.path.insert(0, core_dir)
+        
+        # Verificar paths para diagnóstico
+        logger.info(f"Python path: {sys.path}")
+        return True
+    except Exception as e:
+        logger.error(f"Error al configurar entorno: {str(e)}")
+        return False
+
+# Llamar a esta función al inicio
+setup_result = setup_environment()
+if not setup_result:
+    logger.error("No se pudo configurar el entorno correctamente")
+    
 def check_request(persistence: PersistenceManager, soap_client: SOAPClient, 
                  request_name: str) -> Dict[str, Any]:
     """
@@ -250,6 +306,39 @@ def notify_failures(notifier: EmailNotifier, persistence: PersistenceManager,
         return
     
     try:
+        # 1. Cargar configuración SMTP
+        smtp_config_path = os.path.join(persistence.base_path, 'smtp_config.json')
+        
+        if os.path.exists(smtp_config_path):
+            try:
+                with open(smtp_config_path, 'r', encoding='utf-8') as f:
+                    smtp_config = json.load(f)
+                
+                # Configurar notificador
+                notifier.configure(smtp_config)
+                logger.info("Configuración SMTP cargada correctamente")
+            except Exception as smtp_error:
+                logger.error(f"Error al cargar configuración SMTP: {str(smtp_error)}")
+                return
+        else:
+            logger.error("No se encontró archivo de configuración SMTP")
+            return
+        
+        # 2. Cargar política de notificaciones
+        notify_config_path = os.path.join(persistence.base_path, 'notification_config.json')
+        notify_config = {
+            'notify_on_error': True,
+            'notify_on_validation': True
+        }
+        
+        if os.path.exists(notify_config_path):
+            try:
+                with open(notify_config_path, 'r', encoding='utf-8') as f:
+                    notify_config = json.load(f)
+                logger.info("Configuración de notificaciones cargada correctamente")
+            except Exception as e:
+                logger.warning(f"Error al cargar configuración de notificaciones: {str(e)}")
+                # Usar valores predeterminados
         # Cargar configuración de emails
         email_config = persistence.load_email_config()
         recipients = email_config.get('recipients', [])
@@ -258,54 +347,95 @@ def notify_failures(notifier: EmailNotifier, persistence: PersistenceManager,
             logger.warning("No hay destinatarios configurados para notificaciones")
             return
         
-        # Notificar cada fallo
+        # 4. Notificar cada fallo según política configurada
+        notifications_sent = 0
         for failure in failed_requests:
-            notifier.send_service_failure_notification(
-                recipients, 
-                failure['request_name'], 
-                failure
-            )
-            logger.info(f"Notificación enviada para {failure['request_name']}")
+            # Determinar tipo de error
+            level = "error"
+            error_message = failure.get('error', '')
+            
+            # Clasificar tipo de error
+            if 'validation' in failure.get('status', '') or 'validación' in error_message.lower():
+                level = "validation"
+            
+            # Verificar política
+            should_notify = False
+            if level == "error" and notify_config.get('notify_on_error', True):
+                should_notify = True
+            elif level == "validation" and notify_config.get('notify_on_validation', True):
+                should_notify = True
+            
+            if should_notify:
+                # Enviar notificación
+                if notifier.send_service_failure_notification(recipients, failure['request_name'], failure):
+                    notifications_sent += 1
+                    logger.info(f"Notificación enviada para {failure['request_name']}")
+        
+        logger.info(f"Total de notificaciones enviadas: {notifications_sent}/{len(failed_requests)}")
             
     except Exception as e:
-        logger.error(f"Error al notificar fallos: {str(e)}")
+        logger.error(f"Error al notificar fallos: {str(e)}", exc_info=True)
 
 def main():
     """Función principal"""
     global logs_dir
-    logger.info(f"Directorio actual: {os.getcwd()}")
-    logger.info(f"Directorio raíz del proyecto: {project_root}")
+    try:
+        if getattr(sys, 'frozen', False):
+                # Estamos en un entorno compilado (exe)
+                application_path = os.path.dirname(sys.executable)
+                current_dir = application_path
+                logger.info(f"Ejecutando como aplicación compilada: {application_path}")
+        else:
+            # Estamos ejecutando como script
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            logger.info(f"Ejecutando como script Python: {current_dir}")
+    
+        # Subir un nivel si estamos en el directorio 'core'
+        if os.path.basename(current_dir) == 'core':
+            project_root = os.path.dirname(current_dir)
+        else:
+            project_root = current_dir
+            
+        logger.info(f"Directorio raíz del proyecto: {project_root}")
+    except Exception as e:
+        logger.error(f"Error al detectar directorios: {str(e)}")
+        # Fallback a directorio actual
+        current_dir = os.getcwd()
+        project_root = current_dir
+        logger.info(f"Usando directorio actual como fallback: {project_root}")
+        
     logger.info(f"Python path: {sys.executable}")
     logger.info(f"Argumentos: {sys.argv}")
     
     # Verificar acceso a directorios clave
     data_dir = os.path.join(project_root, 'data')
+    logs_dir = os.path.join(project_root, 'logs')
     logger.info(f"Directorio data existe: {os.path.exists(data_dir)}")
     logger.info(f"Directorio logs existe: {os.path.exists(logs_dir)}")
     # Crear directorio de logs si no existe
-    logs_dir = os.path.join(project_root, 'logs')
+    os.makedirs(data_dir, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
+    
+    logger.info(f"Directorio data: {data_dir} (existe: {os.path.exists(data_dir)})")
+    logger.info(f"Directorio logs: {logs_dir} (existe: {os.path.exists(logs_dir)})")
     
     # Configurar argumentos
     parser = argparse.ArgumentParser(description='Monitor de servicios SOAP')
     parser.add_argument('request_name', nargs='?', help='Nombre del request a verificar')
+    parser.add_argument('--notify', action='store_true', help='Forzar envío de notificaciones')
     args = parser.parse_args()
     
-    # Inicializar componentes
-    data_path = os.path.join(project_root, 'data')
-    persistence = PersistenceManager(base_path=data_path)
+     # Inicializar componentes
+    persistence = PersistenceManager(base_path=data_dir)
     soap_client = SOAPClient()
     notifier = EmailNotifier()
-    
-    # Cargar configuración de notificaciones
-    # TODO: Cargar configuración SMTP desde archivo
     
     # Lista para almacenar fallos
     failed_requests = []
     
-    # Verificar un request específico o todos
     if args.request_name:
         # Verificar un solo request
+        logger.info(f"Verificando servicio específico: {args.request_name}")
         result = check_request(persistence, soap_client, args.request_name)
         
         if result['status'] != 'ok':
@@ -314,21 +444,28 @@ def main():
         # Verificar todos los requests
         requests = persistence.list_all_requests()
         
+        logger.info(f"Verificando {len(requests)} servicios")
+        active_count = 0
+        
         for request_data in requests:
-            # Solo verificar requests activos
-            if request_data.get('status') == 'active':
+            # Solo verificar requests activos y monitoreo habilitado
+            if request_data.get('monitor_enabled', True):
+                active_count += 1
                 result = check_request(persistence, soap_client, request_data['name'])
                 
                 if result['status'] != 'ok':
                     failed_requests.append(result)
+        
+        logger.info(f"Servicios activos verificados: {active_count}")
     
     # Notificar fallos
-    if failed_requests:
+    if failed_requests or args.notify:
+        logger.info(f"Enviando notificaciones para {len(failed_requests)} fallos")
         notify_failures(notifier, persistence, failed_requests)
-        logger.info(f"Notificados {len(failed_requests)} fallos")
     else:
         logger.info("Todos los servicios funcionan correctamente")
 
+    # Esperar si es necesario
     if len(sys.argv) > 1 and '--wait' in sys.argv:
         print("\nPresiona Enter para cerrar...")
         input()

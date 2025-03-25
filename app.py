@@ -33,18 +33,44 @@ from core.soap_client import SOAPClient
 from core.notification import EmailNotifier
 from core.scheduler import SOAPMonitorScheduler
 # Verificar integridad de datos al inicio de la aplicación
+
+def get_application_path():
+    """Obtiene el directorio base de la aplicación, compatible con .exe"""
+    if getattr(sys, 'frozen', False):
+        # Estamos ejecutando en aplicación compilada
+        return os.path.dirname(sys.executable)
+    else:
+        # Estamos ejecutando en modo script
+        return os.path.dirname(os.path.abspath(__file__))
+
+# Configurar directorio raíz
+application_path = get_application_path()
+current_dir = application_path
+sys.path.append(current_dir)
+
+# Crear directorios clave si no existen
+data_dir = os.path.join(application_path, 'data')
+logs_dir = os.path.join(application_path, 'logs')
+debug_dir = os.path.join(application_path, 'debug')
+
+os.makedirs(data_dir, exist_ok=True)
+os.makedirs(logs_dir, exist_ok=True)
+os.makedirs(debug_dir, exist_ok=True)
+
+# Verificar si la aplicación se está ejecutando como un script o como un .exe
+is_compiled = getattr(sys, 'frozen', False)
+run_mode = "compiled" if is_compiled else "script"
+
 def check_data_integrity():
-    persistence = PersistenceManager()
+    from core.persistence import PersistenceManager
+    persistence = PersistenceManager(base_path=data_dir)
     report = persistence.repair_requests_directory()
-    print(f"Informe de integridad de datos: {report}")
+    logger.info(f"Informe de integridad de datos: {report}")
     
 # Llamar a esta función en main()
 # Configuración de logging
 def setup_logging():
     """Configura el sistema de logging"""
-    logs_dir = os.path.join(current_dir, 'logs')
-    os.makedirs(logs_dir, exist_ok=True)
-    
     log_file = os.path.join(logs_dir, 'soap_monitor.log')
     
     logging.basicConfig(
@@ -57,7 +83,11 @@ def setup_logging():
     )
     
     logger = logging.getLogger('app')
-    logger.info("=== Iniciando aplicación ===")
+    logger.info(f"=== Iniciando aplicación (modo: {run_mode}) ===")
+    logger.info(f"Directorio base: {application_path}")
+    logger.info(f"Directorio datos: {data_dir}")
+    logger.info(f"Directorio logs: {logs_dir}")
+    logger.info(f"Python executable: {sys.executable}")
     
     return logger
 
@@ -71,7 +101,7 @@ def setup_detailed_logging():
     monitor_logger.setLevel(logging.DEBUG)
     
     # Log detallado a archivo separado
-    debug_handler = logging.FileHandler(os.path.join('logs', 'debug.log'))
+    debug_handler = logging.FileHandler(os.path.join(logs_dir, 'debug.log'))
     debug_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
     debug_handler.setFormatter(debug_formatter)
     
@@ -97,6 +127,9 @@ def parse_arguments():
     parser.add_argument('--no-admin-check', action='store_true', 
                        help='Omitir la verificación de permisos de administrador')
     
+    parser.add_argument('--notify', action='store_true',
+                       help='Forzar envío de notificaciones')
+    
     return parser.parse_args()
 
 def run_headless(args, logger):
@@ -107,10 +140,26 @@ def run_headless(args, logger):
         args: Argumentos de línea de comandos
         logger: Logger configurado
     """
-    # Inicializar componentes
-    persistence = PersistenceManager()
+    # Inicializar componentes con rutas absolutas
+    from core.persistence import PersistenceManager
+    from core.soap_client import SOAPClient
+    from core.notification import EmailNotifier
+    
+    persistence = PersistenceManager(base_path=data_dir)
     soap_client = SOAPClient()
     notifier = EmailNotifier()
+    
+     # Cargar configuración SMTP para notificaciones
+    try:
+        smtp_config_path = os.path.join(data_dir, 'smtp_config.json')
+        if os.path.exists(smtp_config_path):
+            import json
+            with open(smtp_config_path, 'r', encoding='utf-8') as f:
+                smtp_config = json.load(f)
+            notifier.configure(smtp_config)
+            logger.info("Configuración SMTP cargada correctamente")
+    except Exception as e:
+        logger.error(f"Error al cargar configuración SMTP: {str(e)}")
     
     logger.info("Ejecutando en modo sin interfaz gráfica")
     
@@ -123,6 +172,13 @@ def run_headless(args, logger):
         
         if result['status'] != 'ok':
             logger.error(f"Error en servicio {args.check}: {result.get('error', 'Error desconocido')}")
+            
+            # Enviar notificación si se solicita
+            if args.notify:
+                logger.info("Enviando notificación por error detectado")
+                from core.monitor import notify_failures
+                notify_failures(notifier, persistence, [result])
+                
             sys.exit(1)
         else:
             logger.info(f"Servicio {args.check} verificado correctamente")
@@ -133,6 +189,11 @@ def run_headless(args, logger):
         from core.monitor import main as run_monitor
         
         logger.info("Verificando todos los servicios")
+        # Modificar sys.argv para pasar --notify si es necesario
+        if args.notify:
+            if '--notify' not in sys.argv:
+                sys.argv.append('--notify')
+        
         run_monitor()
         sys.exit(0)
     
@@ -146,13 +207,16 @@ def run_gui():
     app = QApplication(sys.argv)
     app.setApplicationName("Monitor de Servicios SOAP")
     
-    # Verificar directorios de datos
-    data_dir = os.path.join(current_dir, 'data')
-    os.makedirs(data_dir, exist_ok=True)
-    os.makedirs(os.path.join(data_dir, 'requests'), exist_ok=True)
+    # Importar módulos de la aplicación
+    from gui.main_window import MainWindow
     
-    # Crear y mostrar ventana principal
-    window = MainWindow()
+    # Configurar directorios y rutas
+    os.environ['SOAP_MONITOR_DATA_DIR'] = data_dir
+    os.environ['SOAP_MONITOR_LOGS_DIR'] = logs_dir
+    os.environ['SOAP_MONITOR_DEBUG_DIR'] = debug_dir
+    
+    # Crear y mostrar ventana principal con rutas absolutas
+    window = MainWindow(data_path=data_dir, logs_path=logs_dir)
     window.show()
     
     # Ejecutar bucle de eventos
@@ -160,8 +224,17 @@ def run_gui():
 
 def main():
     """Función principal de la aplicación"""
+    global logger
+    
     # Configurar logging
     logger = setup_logging()
+    
+    # Verificar entorno e integridad
+    check_environment()
+    check_data_integrity()
+    
+    # Configurar logging detallado
+    setup_detailed_logging()
     
     # Parsear argumentos
     args = parse_arguments()
@@ -192,11 +265,8 @@ def check_environment():
     
     # Comprobar directorios esenciales
     logger.info(f"Directorio actual: {os.getcwd()}")
-    
-    data_dir = os.path.join(os.getcwd(), 'data')
-    debug_dir = os.path.join(os.getcwd(), 'debug')
-    
     logger.info(f"Directorio de datos existe: {os.path.exists(data_dir)}")
+    logger.info(f"Directorio logs existe: {os.path.exists(logs_dir)}")
     logger.info(f"Directorio debug existe: {os.path.exists(debug_dir)}")
     
     # Comprobar permisos

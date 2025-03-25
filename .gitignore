@@ -2,3 +2,4 @@ backup/
 *.pyc
 *.bak
 data/
+logs/

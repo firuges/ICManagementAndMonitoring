@@ -18,6 +18,7 @@ from core.persistence import PersistenceManager
 from core.soap_client import SOAPClient
 from core.scheduler import SOAPMonitorScheduler
 from core.rest_client import RESTClient
+from core.notification import EmailNotifier
 
 # Constantes de estado - añadir al inicio de la clase MonitoringPanel
 STATUS_IDLE = 0
@@ -51,8 +52,12 @@ class MonitoringPanel(QWidget):
         self.persistence = persistence
         self.soap_client = soap_client
         self.scheduler = scheduler
-        self.rest_client = RESTClient()  # Añadir cliente REST
-        self.selected_service = None  # Servicio seleccionado actualmente
+        self.rest_client = RESTClient()
+        self.notifier = EmailNotifier()
+        self.selected_service = None 
+        
+        # Cargar configuración SMTP
+        self._load_smtp_config()
         
         # Crear interfaz
         self._create_ui()
@@ -298,6 +303,110 @@ class MonitoringPanel(QWidget):
         
         main_layout.addWidget(log_group, 1)
 
+    def _load_smtp_config(self):
+        """Carga la configuración SMTP para notificaciones"""
+        try:
+            # Verificar si existe archivo de configuración SMTP
+            smtp_config_path = os.path.join(self.persistence.base_path, 'smtp_config.json')
+            
+            if os.path.exists(smtp_config_path):
+                with open(smtp_config_path, 'r', encoding='utf-8') as f:
+                    smtp_config = json.load(f)
+                
+                # Configurar notificador
+                self.notifier.configure(smtp_config)
+                logger.info("Configuración SMTP cargada correctamente")
+            else:
+                logger.warning("No se encontró archivo de configuración SMTP")
+                
+            # Cargar política de notificaciones
+            notify_config_path = os.path.join(self.persistence.base_path, 'notification_config.json')
+            
+            if os.path.exists(notify_config_path):
+                with open(notify_config_path, 'r', encoding='utf-8') as f:
+                    self.notify_config = json.load(f)
+                logger.info("Configuración de notificaciones cargada correctamente")
+            else:
+                # Usar valores predeterminados
+                self.notify_config = {
+                    'notify_on_error': True,
+                    'notify_on_validation': True,
+                    'notify_daily_summary': False,
+                }
+                logger.warning("Usando configuración de notificaciones por defecto")
+                
+        except Exception as e:
+            logger.error(f"Error al cargar configuración de notificaciones: {str(e)}")
+            self.notify_config = {
+                'notify_on_error': True,
+                'notify_on_validation': True,
+                'notify_daily_summary': False,
+            }
+    
+    def _send_notification(self, service_name: str, error_details: Dict[str, Any], level: str = 'error'):
+        """
+        Envía una notificación de error por correo electrónico si está habilitado.
+        
+        Args:
+            service_name (str): Nombre del servicio con error
+            error_details (Dict[str, Any]): Detalles del error
+            level (str): Nivel de error ('error', 'validation', etc.)
+        """
+        try:
+            # Verificar política de notificaciones
+            should_notify = False
+            
+            if level == 'error' and self.notify_config.get('notify_on_error', True):
+                should_notify = True
+            elif level == 'validation' and self.notify_config.get('notify_on_validation', True):
+                should_notify = True
+            elif level == 'warning' and self.notify_config.get('notify_on_validation', True):
+                should_notify = True
+            
+            if not should_notify:
+                logger.info(f"Notificación no enviada para {service_name} (nivel: {level}) según política configurada")
+                return False
+            
+            # Cargar lista de destinatarios
+            email_config = self.persistence.load_email_config()
+            recipients = email_config.get('recipients', [])
+            
+            if not recipients:
+                logger.warning("No hay destinatarios configurados para notificaciones")
+                return False
+            
+            # Obtener más detalles del servicio
+            service_data = None
+            try:
+                service_data = self.persistence.load_soap_request(service_name)
+            except:
+                pass
+                
+            # Mejorar detalles del error
+            error_data = error_details.copy()
+            
+            if service_data:
+                error_data['type'] = service_data.get('type', 'SOAP')
+                error_data['group'] = service_data.get('group', 'General')
+                
+            if not error_data.get('timestamp'):
+                error_data['timestamp'] = datetime.now().isoformat()
+            
+            # Enviar notificación
+            result = self.notifier.send_service_failure_notification(recipients, service_name, error_data)
+            
+            if result:
+                self._log_event(f"Notificación enviada para {service_name}")
+                return True
+            else:
+                self._log_event(f"Error al enviar notificación para {service_name}", "warning")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error al procesar notificación: {str(e)}")
+            self._log_event(f"Error al procesar notificación: {str(e)}", "error")
+            return False
+    
     def _reset_filters(self):
         """Restablece todos los filtros aplicados"""
         # Restablecer filtro de grupo
@@ -1227,6 +1336,27 @@ class MonitoringPanel(QWidget):
         else:
             self._log_event(f"Error en servicio {service_name}: {message}", "error")
         
+            # Enviar notificación si es un error
+            try:
+                # Determinar tipo de error
+                level = "error"
+                if "validación" in message.lower():
+                    level = "validation"
+                elif "advertencia" in message.lower():
+                    level = "warning"
+                
+                # Obtener detalles
+                error_details = {
+                    'error': message,
+                    'status': 'failed',
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                # Enviar notificación
+                self._send_notification(service_name, error_details, level)
+            except Exception as e:
+                logger.error(f"Error al preparar notificación: {str(e)}")
+                
         # Actualizar interfaz
         if service_name in self._checking_services:
             row = self._checking_services[service_name]['row']
