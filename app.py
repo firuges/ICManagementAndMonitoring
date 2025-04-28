@@ -74,7 +74,7 @@ def setup_logging():
     log_file = os.path.join(logs_dir, 'soap_monitor.log')
     
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_file),
@@ -88,6 +88,12 @@ def setup_logging():
     logger.info(f"Directorio datos: {data_dir}")
     logger.info(f"Directorio logs: {logs_dir}")
     logger.info(f"Python executable: {sys.executable}")
+    try:
+        from core.notification import setup_notification_log
+        setup_notification_log(logs_dir)
+        logger.info("Log especializado para notificaciones configurado correctamente")
+    except ImportError:
+        logger.warning("No se pudo configurar log especializado para notificaciones")
     
     return logger
 

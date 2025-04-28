@@ -63,13 +63,24 @@ class SOAPClient:
         Returns:
             Tuple[bool, Dict[str, Any]]: (éxito, resultado/error)
         """
+        result = {
+            "request_xml": request_xml,
+            "status": "pending"
+        }
+        
         if validate_url:
-            from .utils import validate_endpoint_url
-            if not validate_endpoint_url(wsdl_url, timeout=5):
-                return False, {
-                    "error": f"URL del WSDL no accesible: {wsdl_url}",
-                    "status": "url_error"
-                }
+            try:
+                from .utils import validate_endpoint_url
+                if not validate_endpoint_url(wsdl_url, timeout=5):
+                    return False, {
+                        "error": f"URL del WSDL no accesible: {wsdl_url}",
+                        "status": "url_error",
+                        "request_xml": request_xml
+                    }
+            except ImportError:
+                # En caso de que utils no esté disponible, continuar sin validación
+                logger.warning("Módulo utils no disponible, continuando sin validación de URL")
+                
         retry_count = 0
         while retry_count <= max_retries:
             try:
@@ -226,6 +237,17 @@ class SOAPClient:
                                     "status": "ok",
                                     "_raw_xml_available": bool(history)
                                 }
+                                
+                                if success:
+                                    # Si tenemos la respuesta XML sin procesar, guardarla
+                                    if '_raw_xml_available' in result and result['_raw_xml_available']:
+                                        # Asegurarnos de que se guarde el XML sin procesar
+                                        if hasattr(response, '_raw_response'):
+                                            result['raw_response_xml'] = response._raw_response
+                                    
+                                    # También guardar la respuesta sin procesar si está disponible en la historia
+                                    if 'history' in locals() and history:
+                                        result['raw_response_xml'] = history[-1]
                                 
                                 # Guardar XML para diagnóstico
                                 self._save_debug_xml(method_name, request_xml, xml_response)
@@ -448,6 +470,11 @@ class SOAPClient:
                 'SOAPAction': '""'
             }
             
+            request_details = {
+                'request_xml': request_xml,
+                'wsdl_url': wsdl_url
+            }
+                
             # Realizar petición HTTP directamente
             import requests
             import time
@@ -478,21 +505,22 @@ class SOAPClient:
                         # Si es el último intento, propagar el error
                         raise
             
+            # Guardar la respuesta XML sin procesar
+            response_text = response.text
+            
             # Verificar si la respuesta es exitosa
             if response.status_code != 200:
                 return False, {
                     "error": f"Error HTTP: {response.status_code}",
-                    "response_text": response.text[:500],  # Limitar longitud
-                    "status": "http_error"
+                    "response_text": response_text,  # Texto sin procesar
+                    "status": "http_error",
+                    "request_details": request_details
                 }
             
             # Procesar respuesta XML
             try:
-                # Guardar respuesta XML para diagnóstico
-                self._save_debug_xml("direct_call", request_xml, response.text)
-                
                 # Parsear la respuesta de manera segura
-                response_dict = xmltodict.parse(response.text)
+                response_dict = xmltodict.parse(response_text)
                 
                 # Buscar un posible error SOAP en la respuesta
                 soap_fault = self._extract_soap_fault(response_dict)
@@ -500,27 +528,33 @@ class SOAPClient:
                     return False, {
                         "error": f"SOAP Fault en respuesta directa: {soap_fault}",
                         "response": response_dict,
-                        "status": "soap_fault"
+                        "response_text": response_text,  # Texto sin procesar
+                        "status": "soap_fault",
+                        "request_details": request_details
                     }
                 
                 return True, {
                     "method": "direct_xml_call",
                     "response": response_dict,
-                    "status": "ok"
+                    "response_text": response_text,  # Texto sin procesar
+                    "status": "ok",
+                    "request_details": request_details
                 }
             except Exception as xml_parse_error:
                 logger.error(f"Error al parsear respuesta XML: {str(xml_parse_error)}")
                 return False, {
                     "error": f"Error al parsear respuesta: {str(xml_parse_error)}",
-                    "response_text": response.text[:500],  # Limitar longitud
-                    "status": "parse_error"
+                    "response_text": response_text,  # Texto sin procesar
+                    "status": "parse_error",
+                    "request_details": request_details
                 }
                 
         except Exception as e:
             logger.error(f"Error en llamada directa XML: {str(e)}", exc_info=True)
             return False, {
                 "error": f"Error en llamada directa: {str(e)}",
-                "status": "direct_call_error"
+                "status": "direct_call_error",
+                "request_details": {'request_xml': request_xml}
             }
     
     def _extract_service_url(self, client: zeep.Client, wsdl_url: str) -> Optional[str]:
@@ -1118,7 +1152,7 @@ class SOAPClient:
             
         return result
     
-    def _save_debug_xml(self, prefix: str, request_xml: str, response_xml: str) -> None:
+    def _save_debug_xml(self, prefix: str, request_xml: str, response_xml: str) -> Dict[str, str]:
         """
         Guarda XMLs de request y response para diagnóstico.
         
@@ -1137,16 +1171,33 @@ class SOAPClient:
             filename = f"{prefix}_{timestamp}"
             
             # Guardar request
-            with open(os.path.join(debug_dir, f"{filename}_request.xml"), 'w', encoding='utf-8') as f:
+            request_file = os.path.join(debug_dir, f"{filename_base}_request.xml")
+            with open(request_file, 'w', encoding='utf-8') as f:
                 f.write(request_xml)
+            saved_files['request'] = request_file
                 
-            # Guardar response
-            with open(os.path.join(debug_dir, f"{filename}_response.xml"), 'w', encoding='utf-8') as f:
+            is_xml = False
+            try:
+                # Comprobar si parece XML válido
+                if response_xml.strip().startswith('<') and '>' in response_xml:
+                    # Verificación rápida - no usamos parseadores completos para evitar errores con XML mal formado
+                    is_xml = True
+            except Exception:
+                is_xml = False
+            
+            # Elegir extensión adecuada
+            ext = 'xml' if is_xml else 'txt'
+            response_file = os.path.join(debug_dir, f"{filename_base}_response.{ext}")
+            
+            with open(response_file, 'w', encoding='utf-8') as f:
                 f.write(response_xml)
+            saved_files['response'] = response_file
                 
-            logger.info(f"Debug XML guardado en {debug_dir}/{filename}_*.xml")
+            logger.info(f"Debug XML guardado en {debug_dir}/{filename_base}_*.{ext}")
+            return saved_files
         except Exception as e:
             logger.error(f"Error guardando debug XML: {str(e)}")
+            return saved_files
 
     # Añadir en core/soap_client.py
 

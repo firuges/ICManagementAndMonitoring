@@ -38,7 +38,7 @@ class MonitoringPanel(QWidget):
     """Panel de monitoreo de servicios SOAP"""
     
     def __init__(self, persistence: PersistenceManager, soap_client: SOAPClient, 
-                scheduler: SOAPMonitorScheduler):
+             scheduler: SOAPMonitorScheduler, notifier: EmailNotifier = None):
         """
         Inicializa el panel de monitoreo.
         
@@ -195,7 +195,7 @@ class MonitoringPanel(QWidget):
         self.services_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.services_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.services_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
-        self.services_table.setColumnWidth(5, 120)
+        self.services_table.setColumnWidth(5, 200)
         self.services_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.services_table.setSelectionMode(QTableWidget.SingleSelection)
         self.services_table.itemClicked.connect(self._on_service_selected)
@@ -353,6 +353,9 @@ class MonitoringPanel(QWidget):
             level (str): Nivel de error ('error', 'validation', etc.)
         """
         try:
+            logger.debug(f"[DEBUG_FLOW] Iniciando _send_notification para {service_name}")
+            logger.debug(f"[DEBUG_FLOW] Detalles recibidos: {json.dumps(error_details, default=str)}")
+            
             # Verificar política de notificaciones
             should_notify = False
             
@@ -385,13 +388,26 @@ class MonitoringPanel(QWidget):
             # Mejorar detalles del error
             error_data = error_details.copy()
             
+            # Mejorar detalles del error - ESTA ES LA CLAVE DEL PROBLEMA
             if service_data:
-                error_data['type'] = service_data.get('type', 'SOAP')
-                error_data['group'] = service_data.get('group', 'General')
+                # Añadir información relevante para adjuntos
+                error_details['type'] = service_data.get('type', 'SOAP')
+                error_details['group'] = service_data.get('group', 'General')
+                
+                # Añadir información específica según tipo para adjuntos
+                if error_details['type'] == 'SOAP':
+                    error_details['request_xml'] = service_data.get('request_xml', '')
+                else:  # REST
+                    error_details['url'] = service_data.get('url', '')
+                    error_details['method'] = service_data.get('method', 'GET')
+                    error_details['headers'] = service_data.get('headers', {})
+                    error_details['request_body'] = service_data.get('json_data', {})
                 
             if not error_data.get('timestamp'):
                 error_data['timestamp'] = datetime.now().isoformat()
             
+            logger.debug(f"[DEBUG_FLOW] Llamando a send_service_failure_notification para {service_name}")
+    
             # Enviar notificación
             result = self.notifier.send_service_failure_notification(recipients, service_name, error_data)
             

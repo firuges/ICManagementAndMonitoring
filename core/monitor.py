@@ -130,6 +130,10 @@ def check_request(persistence: PersistenceManager, soap_client: SOAPClient,
         service_type = request_data.get('type', 'SOAP')
         logger.info(f"Tipo de servicio: {service_type}")
         
+        # Inicializamos result aquí para evitar el error de referencia
+        result = None
+        success = False
+        
         # Procesar según tipo de servicio
         if service_type == 'SOAP':
             # Extraer datos necesarios para SOAP
@@ -139,12 +143,29 @@ def check_request(persistence: PersistenceManager, soap_client: SOAPClient,
             if not wsdl_url or not request_xml:
                 error_msg = "WSDL URL o XML del request no encontrados"
                 logger.error(f"{error_msg} para {request_name}")
+                
+                # Preparar detalles del error para notificación
+                error_details = {
+                    'error': error_msg,
+                    'status': 'error',
+                    'timestamp': datetime.now().isoformat(),
+                    'type': 'SOAP',
+                    'request_xml': request_xml  # Incluir el XML aunque esté incompleto
+                }
+                
+                persistence.update_request_status(request_name, 'error', error_details)
+                
                 return {
                     'request_name': request_name,
                     'status': 'error',
                     'error': error_msg,
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now().isoformat(),
+                    'error_details': error_details
                 }
+            
+            # Verificar timeouts y reintentos configurados
+            timeout = request_data.get('request_timeout', 30)  # Default: 30 segundos
+            max_retries = request_data.get('max_retries', 1)   # Default: 1 reintento
             
             # Enviar request SOAP con timeout y reintentos configurados
             success, result = soap_client.send_raw_request(
@@ -156,17 +177,27 @@ def check_request(persistence: PersistenceManager, soap_client: SOAPClient,
             
         else:  # REST
             # Importar cliente REST si es necesario
-            # Si no tienes módulo rest_client, deberás implementarlo o importarlo
             try:
                 from rest_client import RESTClient
                 rest_client = RESTClient()
             except ImportError:
                 logger.error("Módulo REST no disponible. Imposible verificar servicio REST.")
+                
+                error_details = {
+                    'error': "Módulo REST no disponible",
+                    'status': 'error',
+                    'timestamp': datetime.now().isoformat(),
+                    'type': 'REST'
+                }
+                
+                persistence.update_request_status(request_name, 'error', error_details)
+                
                 return {
                     'request_name': request_name,
                     'status': 'error',
                     'error': "Módulo REST no disponible",
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now().isoformat(),
+                    'error_details': error_details
                 }
             
             # Extraer datos necesarios para REST
@@ -179,12 +210,32 @@ def check_request(persistence: PersistenceManager, soap_client: SOAPClient,
             if not url:
                 error_msg = "URL del servicio REST no encontrada"
                 logger.error(f"{error_msg} para {request_name}")
+                
+                # Preparar detalles para notificación
+                error_details = {
+                    'error': error_msg,
+                    'status': 'error',
+                    'timestamp': datetime.now().isoformat(),
+                    'type': 'REST',
+                    'url': url,
+                    'method': method,
+                    'headers': headers,
+                    'request_body': json_data
+                }
+                
+                persistence.update_request_status(request_name, 'error', error_details)
+                
                 return {
                     'request_name': request_name,
                     'status': 'error',
                     'error': error_msg,
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now().isoformat(),
+                    'error_details': error_details
                 }
+            
+            # Extraer configuración de timeout y reintentos
+            timeout = request_data.get('request_timeout', 30)
+            max_retries = request_data.get('max_retries', 1)
             
             # Enviar request REST
             logger.info(f"Enviando request REST {method} a {url}")
@@ -194,20 +245,60 @@ def check_request(persistence: PersistenceManager, soap_client: SOAPClient,
                 headers=headers,
                 params=params,
                 json_data=json_data,
-                timeout=request_data.get('request_timeout', 30),
-                max_retries=request_data.get('max_retries', 1)
+                timeout=timeout,
+                max_retries=max_retries
             )
         
         # El resto del código es igual para ambos tipos
         if not success:
+            # Preparar detalles para notificación
+            error_details = {
+                'error': result.get('error', 'Error desconocido'),
+                'status': 'failed',
+                'timestamp': datetime.now().isoformat(),
+                'type': service_type,
+                'group': request_data.get('group', 'General')
+            }
+            
+            # Añadir detalles específicos según tipo de servicio
+            if service_type == 'SOAP':
+                error_details['request_xml'] = request_xml
+                
+                # Capturar respuesta XML sin procesar si está disponible
+                if 'raw_response_xml' in result:
+                    error_details['response_text'] = result['raw_response_xml']
+                elif 'response_text' in result:
+                    error_details['response_text'] = result['response_text']
+                
+                # Incluir también respuesta procesada
+                if 'response' in result:
+                    error_details['response'] = result['response']
+            else:  # REST
+                # Incluir detalles específicos de REST
+                error_details['url'] = url
+                error_details['method'] = method
+                error_details['headers'] = headers
+                error_details['request_body'] = json_data
+                
+                # Capturar respuesta sin procesar
+                if 'response_text' in result:
+                    error_details['response_text'] = result['response_text']
+                
+                # Incluir respuesta procesada y headers
+                if 'response' in result:
+                    error_details['response'] = result['response']
+                if 'headers' in result:
+                    error_details['response_headers'] = result['headers']
+            
             # Guardar resultado de error
-            persistence.update_request_status(request_name, 'failed', result)
+            persistence.update_request_status(request_name, 'failed', error_details)
             
             return {
                 'request_name': request_name,
                 'status': 'failed',
                 'error': result.get('error', 'Error desconocido'),
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now().isoformat(),
+                'error_details': error_details
             }
         
         # Extraer esquema de validación avanzado
@@ -226,50 +317,119 @@ def check_request(persistence: PersistenceManager, soap_client: SOAPClient,
         )
         
         if not valid:
+            # Preparar detalles para notificación
+            error_details = {
+                'status': level,
+                'timestamp': datetime.now().isoformat(),
+                'type': service_type,
+                'group': request_data.get('group', 'General')
+            }
+            
+            # Añadir detalles específicos según nivel y tipo
             if level == "failed":
+                error_details['error'] = f"Fallo de validación: {message}"
+                
+                # Incluir detalles de solicitud y respuesta según tipo
+                if service_type == 'SOAP':
+                    error_details['request_xml'] = request_xml
+                    if 'raw_response_xml' in result:
+                        error_details['response_text'] = result['raw_response_xml']
+                    error_details['response'] = result.get('response', {})
+                else:  # REST
+                    error_details['url'] = url
+                    error_details['method'] = method
+                    error_details['headers'] = headers
+                    error_details['request_body'] = json_data
+                    error_details['response_text'] = result.get('response_text', '')
+                    error_details['response'] = result.get('response', {})
+                
                 # La respuesta es un fallo conocido
-                persistence.update_request_status(request_name, 'failed', {
-                    'response': result.get('response', {}),
-                    'validation_message': message
-                })
+                persistence.update_request_status(request_name, 'failed', error_details)
                 
                 return {
                     'request_name': request_name,
                     'status': 'failed',
                     'error': f"Fallo de validación: {message}",
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now().isoformat(),
+                    'error_details': error_details
                 }
             else:
+                error_details['error'] = f"Error de validación: {message}"
+                
+                # Incluir detalles de solicitud y respuesta según tipo
+                if service_type == 'SOAP':
+                    error_details['request_xml'] = request_xml
+                    if 'raw_response_xml' in result:
+                        error_details['response_text'] = result['raw_response_xml']
+                    error_details['response'] = result.get('response', {})
+                else:  # REST
+                    error_details['url'] = url
+                    error_details['method'] = method
+                    error_details['headers'] = headers
+                    error_details['request_body'] = json_data
+                    error_details['response_text'] = result.get('response_text', '')
+                    error_details['response'] = result.get('response', {})
+                
                 # La respuesta no cumple con los patrones esperados
-                persistence.update_request_status(request_name, 'invalid', {
-                    'response': result.get('response', {}),
-                    'validation_error': message
-                })
+                persistence.update_request_status(request_name, 'invalid', error_details)
                 
                 return {
                     'request_name': request_name,
                     'status': 'invalid',
                     'error': f"Error de validación: {message}",
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now().isoformat(),
+                    'error_details': error_details
                 }
         elif level == "warning":
-            # Validación exitosa pero con advertencias
-            persistence.update_request_status(request_name, 'warning', {
-                'response': result.get('response', {}),
+            # Preparar detalles para notificación
+            warning_details = {
+                'status': 'warning',
+                'timestamp': datetime.now().isoformat(),
+                'type': service_type,
+                'group': request_data.get('group', 'General'),
                 'validation_message': message
-            })
+            }
+            
+            # Incluir detalles de solicitud y respuesta según tipo
+            if service_type == 'SOAP':
+                warning_details['request_xml'] = request_xml
+                if 'raw_response_xml' in result:
+                    warning_details['response_text'] = result['raw_response_xml']
+                warning_details['response'] = result.get('response', {})
+            else:  # REST
+                warning_details['url'] = url
+                warning_details['method'] = method
+                warning_details['headers'] = headers
+                warning_details['request_body'] = json_data
+                warning_details['response_text'] = result.get('response_text', '')
+                warning_details['response'] = result.get('response', {})
+            
+            # Validación exitosa pero con advertencias
+            persistence.update_request_status(request_name, 'warning', warning_details)
             
             return {
                 'request_name': request_name,
                 'status': 'warning',
                 'message': message,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now().isoformat(),
+                'error_details': warning_details  # Incluir para posibles notificaciones
             }
         else:
+            # Éxito - preparar detalles para registro
+            success_details = {
+                'response': result.get('response', {}),
+                'status': 'ok',
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # Incluir respuesta sin procesar para depuración
+            if service_type == 'SOAP' and 'raw_response_xml' in result:
+                success_details['response_text'] = result['raw_response_xml']
+            elif 'response_text' in result:
+                success_details['response_text'] = result['response_text']
+            
             # Todo está bien, actualizar estado
-            persistence.update_request_status(request_name, 'ok', {
-                'response': result.get('response', {})
-            })
+            persistence.update_request_status(request_name, 'ok', success_details)
             
             return {
                 'request_name': request_name,
@@ -278,18 +438,37 @@ def check_request(persistence: PersistenceManager, soap_client: SOAPClient,
             }
         
     except Exception as e:
-        logger.error(f"Error al verificar request {request_name}: {str(e)}")
+        logger.error(f"Error al verificar request {request_name}: {str(e)}", exc_info=True)
+        
+        # Preparar detalles detallados del error
+        error_details = {
+            'error': str(e),
+            'status': 'error',
+            'timestamp': datetime.now().isoformat(),
+            'type': request_data.get('type', 'SOAP'),
+            'group': request_data.get('group', 'General'),
+            'traceback': traceback.format_exc()
+        }
+        
+        # Añadir detalles específicos del servicio
+        if request_data.get('type', 'SOAP') == 'SOAP':
+            error_details['request_xml'] = request_data.get('request_xml', '')
+            error_details['wsdl_url'] = request_data.get('wsdl_url', '')
+        else:  # REST
+            error_details['url'] = request_data.get('url', '')
+            error_details['method'] = request_data.get('method', 'GET')
+            error_details['headers'] = request_data.get('headers', {})
+            error_details['request_body'] = request_data.get('json_data', None)
         
         # Actualizar estado de error
-        persistence.update_request_status(request_name, 'error', {
-            'error': str(e)
-        })
+        persistence.update_request_status(request_name, 'error', error_details)
         
         return {
             'request_name': request_name,
             'status': 'error',
             'error': str(e),
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'error_details': error_details
         }
 
 def notify_failures(notifier: EmailNotifier, persistence: PersistenceManager, 
@@ -366,8 +545,35 @@ def notify_failures(notifier: EmailNotifier, persistence: PersistenceManager,
                 should_notify = True
             
             if should_notify:
-                # Enviar notificación
-                if notifier.send_service_failure_notification(recipients, failure['request_name'], failure):
+                # Obtener detalles completos para la notificación si están disponibles
+                error_details = failure.get('error_details', {})
+                
+                if not error_details:
+                    # Si no hay detalles específicos, crear un conjunto básico
+                    error_details = {
+                        'error': failure.get('error', 'Error desconocido'),
+                        'status': failure.get('status', 'unknown'),
+                        'timestamp': failure.get('timestamp', datetime.now().isoformat()),
+                        'type': failure.get('type', 'SOAP')
+                    }
+                    
+                    # Intentar obtener más detalles del servicio
+                    try:
+                        service_data = persistence.load_soap_request(failure['request_name'])
+                        error_details['type'] = service_data.get('type', 'SOAP')
+                        
+                        # Obtener datos de solicitud específicos según tipo
+                        if error_details['type'] == 'SOAP':
+                            error_details['request_xml'] = service_data.get('request_xml', '')
+                        else:  # REST
+                            error_details['url'] = service_data.get('url', '')
+                            error_details['method'] = service_data.get('method', 'GET')
+                            error_details['request_body'] = service_data.get('json_data', None)
+                    except Exception as service_error:
+                        logger.warning(f"No se pudieron obtener detalles adicionales del servicio: {str(service_error)}")
+                
+                # Enviar notificación con detalles completos
+                if notifier.send_service_failure_notification(recipients, failure['request_name'], error_details):
                     notifications_sent += 1
                     logger.info(f"Notificación enviada para {failure['request_name']}")
         

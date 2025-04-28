@@ -53,7 +53,18 @@ class RESTClient:
                 self.logger.debug(f"Params: {params}")
                 if json_data:
                     self.logger.debug(f"JSON data: {json_data}")
-                    
+                
+                request_details = {
+                    'url': url,
+                    'method': method,
+                    'headers': headers,
+                    'params': params
+                }
+                # Guardar el cuerpo de la solicitud si existe
+                if json_data:
+                    request_details['request_body'] = json_data
+                elif data:
+                    request_details['request_body'] = data
                 response = requests.request(
                     method=method,
                     url=url,
@@ -67,7 +78,10 @@ class RESTClient:
                 
                 # Log de respuesta
                 self.logger.debug(f"Código de estado: {response.status_code}")
-            
+
+                # Guardar el texto de la respuesta sin procesar
+                response_text = response.text
+                
                 # Intentar parsear la respuesta como JSON
                 try:
                     response_data = response.json()
@@ -77,19 +91,24 @@ class RESTClient:
                 
                 # Verificar código de estado
                 if response.status_code >= 200 and response.status_code < 300:
-                    return True, {
+                    result = {
                         'status_code': response.status_code,
                         'headers': dict(response.headers),
                         'response': response_data,
-                        'method': method
+                        'response_text': response_text,  # Guardar texto sin procesar
+                        'method': method,
+                        'request_details': request_details  # Incluir detalles de la solicitud
                     }
+                    return True, result
                 else:
                     return False, {
                         'error': f"Error HTTP: {response.status_code}",
                         'status_code': response.status_code,
                         'headers': dict(response.headers),
                         'response': response_data,
-                        'method': method
+                        'response_text': response_text,  # Guardar texto sin procesar
+                        'method': method,
+                        'request_details': request_details  # Incluir detalles de la solicitud
                     }
                     
             except requests.exceptions.Timeout:
