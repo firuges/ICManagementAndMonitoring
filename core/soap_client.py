@@ -1,10 +1,10 @@
+from datetime import datetime
 import os
 import logging
 import xml.etree.ElementTree as ET
 import xmltodict
 import zeep
 import json
-import datetime
 import requests
 from typing import Dict, Any, Tuple, Optional, Union, List
 from zeep.exceptions import TransportError, XMLSyntaxError
@@ -50,9 +50,9 @@ class SOAPClient:
         return self.clients_cache[wsdl_url]
     
     def send_raw_request(self, wsdl_url: str, request_xml: str, 
-                    timeout: int = 30, 
-                    max_retries: int = 3,
-                    validate_url: bool = True) -> Tuple[bool, Dict[str, Any]]:
+                timeout: int = 30, 
+                max_retries: int = 3,
+                validate_url: bool = True) -> Tuple[bool, Dict[str, Any]]:
         """
         Envía un request SOAP XML directamente con manejo robusto de operaciones.
         
@@ -69,18 +69,22 @@ class SOAPClient:
         }
         
         if validate_url:
+        # Import dentro de la función para evitar dependencia circular
             try:
                 from .utils import validate_endpoint_url
-                if not validate_endpoint_url(wsdl_url, timeout=5):
-                    return False, {
-                        "error": f"URL del WSDL no accesible: {wsdl_url}",
-                        "status": "url_error",
-                        "request_xml": request_xml
-                    }
             except ImportError:
-                # En caso de que utils no esté disponible, continuar sin validación
-                logger.warning("Módulo utils no disponible, continuando sin validación de URL")
-                
+                # Intentar import absoluto si el relativo falla
+                try:
+                    from utils import validate_endpoint_url
+                    if not validate_endpoint_url(wsdl_url, timeout=5):
+                        return False, {
+                            "error": f"URL del WSDL no accesible: {wsdl_url}",
+                            "status": "url_error"
+                        }
+                except ImportError:
+                    # Si ambos imports fallan, continuar sin validación
+                    logger.warning("No se pudo importar validate_endpoint_url, omitiendo validación")
+        
         retry_count = 0
         while retry_count <= max_retries:
             try:
@@ -132,7 +136,8 @@ class SOAPClient:
                 client = self.get_client(wsdl_url)
                 
                 transport = zeep.Transport(timeout=timeout)
-                self.clients_cache[wsdl_url] = zeep.Client(wsdl=wsdl_url, transport=transport)
+                client = zeep.Client(wsdl=wsdl_url, transport=transport)
+                self.clients_cache[wsdl_url] = client
                 
                 # PARTE CRÍTICA: Manejo seguro de las operaciones
                 available_methods = []
@@ -189,166 +194,39 @@ class SOAPClient:
                 
                 # Ejecutar la llamada SOAP con manejo robusto de errores
                 try:
-                    # Normalizar parámetros eliminando prefijos de namespace
-                    normalized_params = self._normalize_params(method_params) if isinstance(method_params, dict) else {}
-                    
-                    # Intentar ejecutar el método
-                    response = None
-                    if hasattr(client.service, method_match):
-                        # Ejecución mediante atributo
-                        service_method = getattr(client.service, method_match)
-                        if callable(service_method):
-                            response = service_method(**normalized_params)
-                    else:
-                        # Ejecución mediante índice
-                        try:
-                            # Configurar historial para capturar la respuesta XML
-                            history = []
-                            
-                            # Crear plugin para capturar respuesta
-                            class CapturePlugin(zeep.Plugin):
-                                def ingress(self, envelope, http_headers, operation):
-                                    # Capturar respuesta XML
-                                    xml_string = etree.tostring(envelope, encoding='unicode')
-                                    history.append(xml_string)
-                                    return envelope
-                            
-                            # Añadir plugin al cliente
-                            plugins = [CapturePlugin()]
-                            transport = client.transport
-                            transport.session.auth = None  # Evitar posibles problemas de autenticación
-                            
-                            # Ejecutar llamada con plugins
-                            response = client.service[method_name](**normalized_params, _plugins=plugins)
-                            
-                            # Procesar la respuesta con el método normal
-                            response_dict = self._zeep_object_to_dict(response)
-                            
-                            # Si la respuesta está vacía pero tenemos XML capturado, procesar el XML directamente
-                            if (not response_dict or response_dict == {}) and history:
-                                logger.info("Respuesta Zeep vacía, procesando XML directamente")
-                                xml_response = history[-1]  # Última respuesta capturada
-                                direct_response = self._extract_soap_response_xml(xml_response)
-                                
-                                # Combinar resultados
-                                result = {
-                                    "method": method_name,
-                                    "response": direct_response or response_dict,
-                                    "status": "ok",
-                                    "_raw_xml_available": bool(history)
-                                }
-                                
-                                if success:
-                                    # Si tenemos la respuesta XML sin procesar, guardarla
-                                    if '_raw_xml_available' in result and result['_raw_xml_available']:
-                                        # Asegurarnos de que se guarde el XML sin procesar
-                                        if hasattr(response, '_raw_response'):
-                                            result['raw_response_xml'] = response._raw_response
-                                    
-                                    # También guardar la respuesta sin procesar si está disponible en la historia
-                                    if 'history' in locals() and history:
-                                        result['raw_response_xml'] = history[-1]
-                                
-                                # Guardar XML para diagnóstico
-                                self._save_debug_xml(method_name, request_xml, xml_response)
-                                
-                                return True, result
-                            else:
-                                # Respuesta normal procesada correctamente
-                                return True, {
-                                    "method": method_name,
-                                    "response": response_dict,
-                                    "status": "ok"
-                                }
-                        except Exception as call_error:
-                            logger.error(f"Error al llamar al método {method_match}: {str(call_error)}")
-                            # Intento alternativo: enviar directamente el XML
-                            return self._send_direct_xml(wsdl_url, request_xml)
-                    
-                    if response is None:
-                        return False, {
-                            "error": f"No se obtuvo respuesta del método {method_match}",
-                            "status": "no_response"
-                        }
-                    
-                    # Convertir respuesta a diccionario
-                    response_dict = self._zeep_object_to_dict(response)
-                    
-                    return True, {
-                        "method": method_match,
-                        "response": response_dict,
-                        "status": "ok"
-                    }
-                except requests.exceptions.Timeout:  
-                    retry_count += 1
-                    if retry_count <= max_retries:
-                        logger.warning(f"Timeout al intentar conectar con el servicio. Reintentando ({retry_count}/{max_retries})...")
-                        time.sleep(1 * retry_count)  # Esperar más tiempo en cada reintento
-                    else:
-                        logger.error(f"Error de timeout después de {max_retries} reintentos")
-                        return False, {
-                            "error": f"Timeout al intentar conectar con el servicio después de {max_retries} reintentos: {wsdl_url}",
-                            "status": "timeout"
-                        }
-                except (requests.exceptions.ConnectionError, ConnectionError, ConnectionRefusedError, ConnectionAbortedError) as e:
-                    # Errores de conexión
-                    retry_count += 1
-                    if retry_count <= max_retries:
-                        logger.warning(f"Error de conexión. Reintentando ({retry_count}/{max_retries})...")
-                        time.sleep(1 * retry_count)  # Esperar más tiempo en cada reintento
-                    else:
-                        logger.error(f"Error al enviar request SOAP: {str(e)}", exc_info=True)
-                        return False, {
-                            "error": f"Error de conexión: {str(e)}",
-                            "status": "connection_error"
-                        }
-                except zeep.exceptions.Fault as fault:
-                    # SOAP Faults
-                    logger.error(f"Error SOAP Fault: {str(fault)}")
-                    return False, {
-                        "error": f"SOAP Fault: {str(fault)}",
-                        "status": "soap_fault" 
-                    }
-                except Exception as e:
-                    retry_count += 1
-                    
-                    # Determinar si el error es de tipo timeout o conexión
-                    is_timeout = "timeout" in str(e).lower() or isinstance(e, requests.exceptions.Timeout)
-                    is_connection = isinstance(e, (requests.exceptions.ConnectionError, ConnectionError, 
-                                            ConnectionRefusedError, ConnectionAbortedError))
-                    
-                    # Si es un error recuperable y no excedimos los reintentos
-                    if retry_count <= max_retries and (is_timeout or is_connection):
-                        error_type = "timeout" if is_timeout else "conexión"
-                        logger.warning(f"Error de {error_type}. Reintentando ({retry_count}/{max_retries})...")
-                        time.sleep(1 * retry_count)  # Esperar más tiempo en cada reintento
-                    else:
-                        # Error no recuperable o máximo de reintentos alcanzado
-                        if is_timeout:
-                            status = "timeout"
-                            error_msg = f"Timeout al intentar conectar con el servicio después de {max_retries} reintentos"
-                        elif is_connection:
-                            status = "connection_error"
-                            error_msg = f"Error de conexión después de {max_retries} reintentos"
-                        elif isinstance(e, zeep.exceptions.Fault):
-                            status = "soap_fault"
-                            error_msg = f"SOAP Fault: {str(e)}"
-                        else:
-                            status = "error"
-                            error_msg = f"Error inesperado: {str(e)}"
-                            
-                        logger.error(f"{error_msg}", exc_info=True)
-                        return False, {
-                            "error": error_msg,
-                            "status": status
-                        }
+                    # Intentar usar el método directo
+                    return self._send_direct_xml(wsdl_url, request_xml)
+                except Exception as call_error:
+                    logger.error(f"Error al llamar al método {method_match}: {str(call_error)}")
+                    # Intento alternativo: enviar directamente el XML
+                    return self._send_direct_xml(wsdl_url, request_xml)
                     
             except Exception as e:
-                logger.error(f"Error al enviar request SOAP: {str(e)}", exc_info=True)
-                return False, {
-                    "error": f"Error inesperado: {str(e)}",
-                    "status": "error"
-                }
+                retry_count += 1
+                
+                # Determinar si el error es de tipo timeout o conexión
+                is_timeout = "timeout" in str(e).lower() or hasattr(e, 'timeout')
+                is_connection = any(conn_err in str(e).lower() for conn_err in 
+                                ['connection', 'connect', 'socket'])
+                
+                # Si es un error recuperable y no excedimos los reintentos
+                if retry_count <= max_retries and (is_timeout or is_connection):
+                    error_type = "timeout" if is_timeout else "conexión"
+                    logger.warning(f"Error de {error_type}. Reintentando ({retry_count}/{max_retries})...")
+                    time.sleep(1 * retry_count)  # Esperar más tiempo en cada reintento
+                else:
+                    # Error no recuperable o máximo de reintentos alcanzado
+                    logger.error(f"Error al enviar request SOAP: {str(e)}", exc_info=True)
+                    return False, {
+                        "error": f"Error inesperado: {str(e)}",
+                        "status": "error"
+                    }
+
+        # Si llegamos aquí, es porque se superaron los reintentos
+        return False, {
+            "error": f"Error después de {max_retries} reintentos",
+            "status": "max_retries_exceeded"
+        }
     
     def _validate_wsdl_url(self, wsdl_url: str) -> bool:
         """
@@ -508,6 +386,16 @@ class SOAPClient:
             # Guardar la respuesta XML sin procesar
             response_text = response.text
             
+            # Extraer nombre del método de la URL o WSDL para nombrar el archivo
+            method_name = "direct_call"
+            if '/' in service_url:
+                url_parts = service_url.rstrip('/').split('/')
+                if url_parts[-1] and not url_parts[-1].startswith('?'):
+                    method_name = url_parts[-1]
+                    
+            # Guardar respuesta cruda para diagnóstico
+            self._save_raw_response(method_name, response_text)
+            
             # Verificar si la respuesta es exitosa
             if response.status_code != 200:
                 return False, {
@@ -520,32 +408,43 @@ class SOAPClient:
             # Procesar respuesta XML
             try:
                 # Parsear la respuesta de manera segura
-                response_dict = xmltodict.parse(response_text)
-                
-                # Buscar un posible error SOAP en la respuesta
-                soap_fault = self._extract_soap_fault(response_dict)
-                if soap_fault:
-                    return False, {
-                        "error": f"SOAP Fault en respuesta directa: {soap_fault}",
+                try:
+                    response_dict = xmltodict.parse(response_text)
+                    
+                    # Buscar un posible error SOAP en la respuesta
+                    soap_fault = self._extract_soap_fault(response_dict)
+                    if soap_fault:
+                        return False, {
+                            "error": f"SOAP Fault en respuesta directa: {soap_fault}",
+                            "response": response_dict,
+                            "response_text": response_text,  # Texto sin procesar
+                            "status": "soap_fault",
+                            "request_details": request_details
+                        }
+                    
+                    return True, {
+                        "method": "direct_xml_call",
                         "response": response_dict,
                         "response_text": response_text,  # Texto sin procesar
-                        "status": "soap_fault",
+                        "status": "ok",
                         "request_details": request_details
                     }
-                
-                return True, {
-                    "method": "direct_xml_call",
-                    "response": response_dict,
-                    "response_text": response_text,  # Texto sin procesar
-                    "status": "ok",
-                    "request_details": request_details
-                }
-            except Exception as xml_parse_error:
-                logger.error(f"Error al parsear respuesta XML: {str(xml_parse_error)}")
+                except Exception as xml_parse_error:
+                    logger.error(f"Error al parsear respuesta XML: {str(xml_parse_error)}")
+                    # Incluso si el parsing falla, devolver la respuesta cruda
+                    return False, {
+                        "error": f"Error al parsear respuesta: {str(xml_parse_error)}",
+                        "response_text": response_text,  # Crucial: guardar texto sin procesar
+                        "status": "parse_error",
+                        "request_details": request_details
+                    }
+            except Exception as e:
+                # Asegurar que se devuelve la respuesta cruda incluso en caso de error general
+                logger.error(f"Error en procesamiento de respuesta: {str(e)}", exc_info=True)
                 return False, {
-                    "error": f"Error al parsear respuesta: {str(xml_parse_error)}",
-                    "response_text": response_text,  # Texto sin procesar
-                    "status": "parse_error",
+                    "error": f"Error en procesamiento: {str(e)}",
+                    "response_text": response_text,  # Crucial: guardar texto sin procesar
+                    "status": "processing_error",
                     "request_details": request_details
                 }
                 
@@ -707,6 +606,8 @@ class SOAPClient:
         Returns:
             Tuple[bool, str, str]: (éxito, mensaje, nivel: 'success'|'warning'|'failed'|'error')
         """
+        logger.debug("Entrando en Validate_Response")
+        
         # Si no hay esquema de validación, éxito por defecto
         if not validation_schema:
             return True, "Respuesta recibida (sin validación de reglas)", "success"
@@ -787,7 +688,7 @@ class SOAPClient:
             self.logger.debug(f"Valor encontrado: '{str_value}', comparando con success_values: {success_values}")
             
             # Verificar si es éxito
-            if str_value in success_values:
+            if any(value in str_value for value in success_values):
                 # Verificar campos adicionales si están definidos
                 if expected_fields:
                     for field_name, expected_value in expected_fields.items():
@@ -827,11 +728,11 @@ class SOAPClient:
                 return True, f"Respuesta validada correctamente", "success"
                 
             # Verificar si es advertencia
-            elif str_value in warning_values:
+            elif any(value in str_value for value in warning_values):
                 return True, f"Respuesta con código de advertencia: {field_value}", "warning"
                 
             # Verificar si es fallo (nueva categoría)
-            elif str_value in failed_values:
+            elif any(value in str_value for value in failed_values):
                 return False, f"Respuesta con código de fallo: {field_value}", "failed"
                 
             # Es un error
@@ -967,63 +868,38 @@ class SOAPClient:
             logger.error(f"Error procesando XML directamente: {str(e)}")
             return {"_raw_xml": response_text}
     
-    def _flatten_dict(self, d: Dict[str, Any], parent_key: str = '', 
-                separator: str = '.') -> Dict[str, Any]:
+
+    def _save_raw_response(self, service_name: str, response_text: str) -> Optional[str]:
         """
-        Aplana un diccionario anidado y maneja namespaces XML correctamente.
+        Guarda el XML/texto crudo de respuesta para diagnóstico.
         
         Args:
-            d (Dict[str, Any]): Diccionario a aplanar
-            parent_key (str): Clave padre para la recursión
-            separator (str): Separador para claves anidadas
+            service_name (str): Nombre del servicio
+            response_text (str): Texto de respuesta sin procesar
             
         Returns:
-            Dict[str, Any]: Diccionario aplanado
+            Optional[str]: Ruta al archivo guardado o None si hubo error
         """
-        items = []
-        for k, v in d.items():
-            # Manejo mejorado de namespaces
-            clean_key = k
+        try:
+            # Crear directorio debug si no existe
+            debug_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'debug')
+            os.makedirs(debug_dir, exist_ok=True)
             
-            # Eliminar namespaces como 'ns2:', 'v1.:', etc.
-            if ':' in k:
-                clean_key = k.split(':')[-1]
-            elif '.' in k and k.split('.')[-1] == '':
-                # Manejar casos como 'v1.'
-                parts = k.split('.')
-                if len(parts) > 1:
-                    clean_key = parts[0]
-                    
-            new_key = f"{parent_key}{separator}{clean_key}" if parent_key else clean_key
+            # Nombre de archivo con timestamp
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"{service_name}_{timestamp}_raw_response.xml"
+            file_path = os.path.join(debug_dir, filename)
             
-            # Almacenar también con la clave original para compatibilidad
-            original_key = f"{parent_key}{separator}{k}" if parent_key else k
-            
-            if isinstance(v, dict):
-                items.extend(self._flatten_dict(v, new_key, separator).items())
-                # También almacenar versión simple del campo
-                items.append((clean_key, v))
-            elif isinstance(v, list):
-                # Manejar listas - procesar cada elemento para arrays de objetos
-                if len(v) > 0 and all(isinstance(item, dict) for item in v):
-                    for i, item in enumerate(v):
-                        list_key = f"{new_key}{separator}{i}"
-                        items.extend(self._flatten_dict(item, list_key, separator).items())
-                items.append((new_key, v))
-                items.append((clean_key, v))
-            else:
-                items.append((new_key, v))
-                items.append((clean_key, v))
-                # También añadir versión sin namespaces
-                items.append((clean_key, v))
-            
-        # Eliminar posibles duplicados manteniendo el último valor
-        result = {}
-        for k, v in items:
-            result[k] = v
+            # Guardar respuesta cruda
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(response_text)
                 
-        return result
-    
+            logger.info(f"Respuesta cruda guardada en {file_path}")
+            return file_path
+        except Exception as e:
+            logger.error(f"Error guardando respuesta cruda: {str(e)}")
+            return None
+        
     def extract_validation_patterns(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Extrae patrones de validación del request.
@@ -1056,9 +932,10 @@ class SOAPClient:
 
     # Localiza la función _flatten_dict en soap_client.py y modifícala así:
     def _flatten_dict(self, d: Dict[str, Any], parent_key: str = '', 
-                    separator: str = '.') -> Dict[str, Any]:
+                separator: str = '.') -> Dict[str, Any]:
         """
-        Aplana un diccionario anidado y maneja namespaces XML correctamente.
+        Aplana un diccionario anidado y maneja namespaces XML complejos correctamente.
+        Soporte mejorado para namespaces problemáticos como v1.: y valores anidados.
         
         Args:
             d (Dict[str, Any]): Diccionario a aplanar
@@ -1069,24 +946,71 @@ class SOAPClient:
             Dict[str, Any]: Diccionario aplanado
         """
         items = []
-        for k, v in d.items():
-            # Eliminar prefijos de namespace si existen
-            if ':' in k:
-                k = k.split(':')[-1]
-                
-            new_key = f"{parent_key}{separator}{k}" if parent_key else k
+        if not isinstance(d, dict):
+            return {}
             
-            if isinstance(v, dict):
-                items.extend(self._flatten_dict(v, new_key, separator).items())
-            elif isinstance(v, list):
-                # Manejar listas - tomar el primer elemento para validación simple
-                if len(v) > 0 and isinstance(v[0], dict):
-                    items.extend(self._flatten_dict(v[0], new_key, separator).items())
-                else:
-                    items.append((new_key, v))
+        for k, v in d.items():
+            # Manejo mejorado de namespaces incluyendo formatos atípicos
+            clean_key = k
+            
+            # Eliminar namespaces como 'ns2:', 'v1:', etc.
+            if ':' in k:
+                clean_key = k.split(':')[-1]
+            
+            # Manejar casos específicos como 'v1.:'
+            elif '.:' in k:
+                clean_key = k.split('.:')[-1]
+            
+            # Manejar casos donde el namespace está al final como '.:codMensaje'
+            if clean_key.startswith('.:'):
+                clean_key = clean_key[2:]
+                
+            new_key = f"{parent_key}{separator}{clean_key}" if parent_key else clean_key
+            
+            # También registrar la clave original para compatibilidad
+            if parent_key:
+                original_key = f"{parent_key}{separator}{k}"
             else:
+                original_key = k
+                
+            # Manejar el caso especial de '#text' para nodos XML con valores de texto
+            if isinstance(v, dict) and '#text' in v:
+                # Registrar el valor de texto directamente con la clave actual
+                items.append((new_key, v['#text']))
+                items.append((clean_key, v['#text']))
+                # Pero también aplanar el diccionario completo (para mantener atributos, etc.)
+                flat_dict = self._flatten_dict(v, new_key, separator)
+                items.extend(flat_dict.items())
+            elif isinstance(v, dict):
+                # Procesar diccionario recursivamente
+                flat_dict = self._flatten_dict(v, new_key, separator)
+                items.extend(flat_dict.items())
+                # También almacenar el campo completo
                 items.append((new_key, v))
-        return dict(items)
+                items.append((clean_key, v))  # Agregar la versión simplificada
+            elif isinstance(v, list):
+                # Manejar listas - procesar cada elemento si son diccionarios
+                if all(isinstance(item, dict) for item in v if item is not None):
+                    for i, item in enumerate(v):
+                        if item is not None:  # Validar que no sea None antes de procesar
+                            list_key = f"{new_key}{separator}{i}"
+                            items.extend(self._flatten_dict(item, list_key, separator).items())
+                
+                # Almacenar la lista completa también
+                items.append((new_key, v))
+                items.append((clean_key, v))  # Versión simplificada
+            else:
+                # Valores simples
+                items.append((new_key, v))
+                items.append((original_key, v))  # Versión con namespace original
+                items.append((clean_key, v))  # Versión simplificada
+        
+        # Eliminar duplicados manteniendo el último valor
+        result = {}
+        for k, v in items:
+            result[k] = v
+            
+        return result
     
     def test_soap_request(xml_file_path: str, wsdl_url: str) -> None:
         """
@@ -1290,6 +1214,7 @@ class SOAPClient:
                               validation_schema: Optional[Dict[str, Any]] = None) -> Tuple[bool, str, str]:
         """
         Valida la respuesta SOAP con reglas avanzadas y configurables.
+        Mejorado para manejar namespaces complejos como v1.:codMensaje.
         
         Args:
             response (Dict[str, Any]): Respuesta SOAP a validar
@@ -1298,9 +1223,13 @@ class SOAPClient:
         Returns:
             Tuple[bool, str, str]: (éxito, mensaje, nivel: 'success'|'warning'|'error')
         """
+        print("Entrando en Validate_Response_Advanced")
+        
         # Si no hay esquema de validación, éxito por defecto
         if not validation_schema:
             return True, "Respuesta recibida (sin validación de reglas)", "success"
+        
+        print(f"Validate_Response_Advanced: 1- ValidationSchema {validation_schema}")
         
         if validation_schema is None:
             validation_schema = {}
@@ -1312,7 +1241,8 @@ class SOAPClient:
             except:
                 # Si no es un JSON válido, usar esquema simple
                 validation_schema = {"status": "ok"}
-            
+        
+        print(f"Validate_Response_Advanced: 2- ValidationSchema {validation_schema}")
         # Caso especial: esquema simple heredado
         if len(validation_schema) == 1 and "status" in validation_schema:
             if validation_schema["status"] == "ok":
@@ -1338,37 +1268,51 @@ class SOAPClient:
             failed_values = [str(failed_values)]
         
         # Estos deben ser listas
-        success_values = [str(v) for v in success_values]
-        warning_values = [str(v) for v in warning_values]
-        failed_values = [str(v) for v in failed_values]
+        success_values = [str(v).strip() for v in success_values]
+        warning_values = [str(v).strip() for v in warning_values]
+        failed_values = [str(v).strip() for v in failed_values]
         
         # Buscar el campo principal de éxito/error
         field_value = None
         field_found = False
+        field_key = None
         
         # 1. Búsqueda exacta
         if success_field in flat_response:
             field_value = flat_response[success_field]
+            field_key = success_field
             field_found = True
             logger.debug(f"Campo '{success_field}' encontrado directamente")
+            print(f"Campo: '{success_field}' encontrado directamente")
+            
         else:
             # 2. Búsqueda flexible
+            possible_keys = []
             for key in flat_response.keys():
                 # Coincidencia al final de la clave o clave parcial
                 if key.endswith(success_field) or success_field in key.split('.'):
-                    field_value = flat_response[key]
-                    field_found = True
-                    logger.debug(f"Campo '{success_field}' encontrado como '{key}'")
-                    break
-        
+                    possible_keys.append(key)
+            
+            # Si hay múltiples claves posibles, usamos la mejor coincidencia
+            if possible_keys:
+                # Ordenar por longitud de clave (más corta primero) y sin namespace preferentemente
+                possible_keys.sort(key=lambda k: (len(k), ":" in k or ".:" in k))
+                field_key = possible_keys[0]
+                field_value = flat_response[field_key]
+                field_found = True
+                logger.debug(f"Campo '{success_field}' encontrado como '{field_key}'")
+                print(f"Campo: '{success_field}' encontrado como '{field_key}'")
+                
+                
         # Evaluar resultado según el campo principal
         if field_found:
             # Convertir a string para comparación consistente
             str_value = str(field_value).strip()
             logger.debug(f"Valor encontrado: '{str_value}', comparando con success_values: {success_values}")
         
-            # Verificar si es éxito
-            if str_value in success_values:
+            # MEJORA CLAVE: Verificar si algún valor de éxito está CONTENIDO en la cadena
+            # en lugar de esperar una coincidencia exacta
+            if any(value in str_value for value in success_values):
                 # Verificar campos adicionales si están definidos
                 if expected_fields:
                     for field_name, expected_value in expected_fields.items():
@@ -1407,12 +1351,12 @@ class SOAPClient:
                 # Todos los criterios cumplidos
                 return True, f"Respuesta validada correctamente", "success"
                 
-            # Verificar si es advertencia
-            elif str_value in warning_values:
+            # MEJORA CLAVE: Verificar si algún valor de advertencia está CONTENIDO en la cadena
+            elif any(value in str_value for value in warning_values):
                 return True, f"Respuesta con código de advertencia: {field_value}", "warning"
                 
-            # Verificar si es fallo (nueva categoría)
-            elif str_value in failed_values:
+            # MEJORA CLAVE: Verificar si algún valor de fallo está CONTENIDO en la cadena
+            elif any(value in str_value for value in failed_values):
                 return False, f"Respuesta con código de fallo: {field_value}", "failed"
                 
             # Es un error
@@ -1426,11 +1370,25 @@ class SOAPClient:
                 alt_values = alt_path.get("success_values", [])
                 
                 # Búsqueda del campo alternativo
-                alt_found, alt_value = self._find_field_by_path(alt_field, flat_response)
+                alt_found = False
+                alt_value = None
+                
+                # Búsqueda exacta
+                if alt_field in flat_response:
+                    alt_found = True
+                    alt_value = flat_response[alt_field]
+                else:
+                    # Búsqueda flexible
+                    for key in flat_response.keys():
+                        if key.endswith(alt_field) or alt_field in key.split('.'):
+                            alt_found = True
+                            alt_value = flat_response[key]
+                            break
                 
                 if alt_found:
                     str_alt_value = str(alt_value).strip()
-                    if str_alt_value in [str(v).strip() for v in alt_values]:
+                    # MEJORA: Verificar si algún valor alternativo está CONTENIDO en la cadena
+                    if any(value in str_alt_value for value in [str(v).strip() for v in alt_values]):
                         return True, f"Validación exitosa mediante ruta alternativa: {alt_field}", "success"
         
         # Si llegamos aquí, no encontramos validación exitosa
@@ -1445,6 +1403,7 @@ class SOAPClient:
         
         # Validación fallida
         if not field_found:
+            logger.warning(f"Campo de validación '{success_field}' no encontrado en la respuesta. Claves disponibles: {list(flat_response.keys())[:20]}")
             return False, f"Campo de validación '{success_field}' no encontrado en la respuesta", "error"
         else:
             return False, f"Valor no esperado en '{success_field}': {field_value}", "error"

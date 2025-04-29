@@ -940,9 +940,6 @@ class MonitoringPanel(QWidget):
         if not service_data:
             return
         
-        # Añadir información de monitoreo
-        
-        
         # Determinar tipo de servicio
         service_type = service_data.get('type', 'SOAP')
         
@@ -1198,24 +1195,93 @@ class MonitoringPanel(QWidget):
         # Mostrar información en el panel
         self.service_info.setHtml(html)
         
-        # Mostrar última respuesta si existe
-        if 'last_response' in service_data and 'response' in service_data['last_response']:
-            try:
-                from core.soap_client import json_serial
-                response_text = json.dumps(
-                    service_data['last_response']['response'], 
-                    indent=2, 
-                    default=json_serial
-                )
-                self.service_response.setText(response_text)
-            except Exception as e:
-                # Utilizar serialización segura como fallback
-                response_text = self._safe_serialize_response(service_data['last_response']['response'])
-                self.service_response.setText(response_text)
-        else:
-            self.service_response.setText("No hay respuesta disponible")
+        # Mostrar última respuesta con manejo mejorado para visualizar XML crudo
+        self._display_service_response(service_data)
+    
+    def _display_service_response(self, service_data: Dict[str, Any]):
+        """
+        Muestra la respuesta del servicio con manejo especial para XML crudo.
+        Asegura que siempre se muestre el XML original incluso si falla el parsing.
         
-        self._log_event(f"Servicio seleccionado: {service_data.get('name')}")
+        Args:
+            service_data (Dict[str, Any]): Datos del servicio
+        """
+        # Si no hay datos del servicio o respuesta, mostrar mensaje por defecto
+        if not service_data or 'last_response' not in service_data:
+            self.service_response.setText("No hay respuesta disponible")
+            return
+        
+        response_container = service_data['last_response']
+        
+        # ESTRATEGIA DE PRIORIDAD PARA MOSTRAR RESPUESTAS:
+        # 1. Obtener respuesta cruda (XML o texto sin procesar)
+        raw_response = None
+        response_sources = ['response_text', 'raw_response_xml', 'error']
+        
+        # Buscar en todas las fuentes posibles de respuesta cruda
+        for source in response_sources:
+            if source in response_container and response_container[source]:
+                raw_response = response_container[source]
+                logger.debug(f"Usando respuesta cruda desde campo '{source}'")
+                break
+        
+        # 2. Intentar mostrar respuesta procesada si existe y no hay error
+        if 'response' in response_container and response_container['response']:
+            try:
+                # Intentar formatear como JSON para mostrar estructura
+                import json
+                from core.soap_client import json_serial
+                
+                # Asegurarse de que sea un diccionario válido antes de convertir
+                if isinstance(response_container['response'], dict):
+                    processed_text = json.dumps(response_container['response'], indent=2, default=json_serial)
+                    self.service_response.setText(processed_text)
+                    logger.debug("Mostrando respuesta procesada como JSON")
+                    return
+                else:
+                    # Si no es un diccionario, convertir a string
+                    self.service_response.setText(str(response_container['response']))
+                    logger.debug("Mostrando respuesta procesada como string")
+                    return
+            except Exception as e:
+                # Si falla la conversión a JSON, registrar el error
+                logger.warning(f"Error al formatear respuesta como JSON: {str(e)}")
+                # Continuar con la respuesta cruda si está disponible
+        
+        # 3. Mostrar respuesta cruda si está disponible (siempre llegar aquí si no se mostró respuesta procesada)
+        if raw_response:
+            # Si parece XML, intentar formatear para mejor legibilidad
+            if isinstance(raw_response, str) and raw_response.strip().startswith('<'):
+                try:
+                    import xml.dom.minidom as md
+                    formatted_xml = md.parseString(raw_response).toprettyxml(indent="  ")
+                    self.service_response.setText(formatted_xml)
+                    logger.debug("Mostrando respuesta XML formateada")
+                    return
+                except Exception as xml_err:
+                    # Si falla el formateo, mostrar XML crudo sin formato
+                    logger.warning(f"Error al formatear XML: {str(xml_err)}")
+                    self.service_response.setText(raw_response)
+                    logger.debug("Mostrando respuesta XML sin formato")
+                    return
+            else:
+                # Mostrar respuesta cruda tal cual
+                self.service_response.setText(raw_response)
+                logger.debug("Mostrando respuesta cruda no-XML")
+                return
+        
+        # 4. Último recurso: intentar serialización segura
+        if 'response' in response_container:
+            try:
+                safe_text = self._safe_serialize_response(response_container['response'])
+                self.service_response.setText(safe_text)
+                logger.debug("Mostrando respuesta con serialización segura")
+                return
+            except Exception as e:
+                logger.warning(f"Error en serialización segura: {str(e)}")
+        
+        # 5. Si todo lo anterior falla, mostrar mensaje genérico
+        self.service_response.setText("No hay respuesta disponible o no se puede mostrar")
     
     def check_service(self, service_name: str, show_progress: bool = True):
         """

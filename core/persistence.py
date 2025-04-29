@@ -3,12 +3,16 @@ import os
 import json
 import logging
 from datetime import datetime, date  # Añadir 'date' aquí
+import sys
 from typing import Dict, List, Any, Optional
 
 # Configuración de logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("app.log", encoding="utf-8"),  # Archivo de log con codificación UTF-8
+    ]
 )
 logger = logging.getLogger('persistence')
 
@@ -229,7 +233,7 @@ class PersistenceManager:
                     
                     # Añadir a la lista
                     requests.append(request_data)
-                    logger.debug(f"Servicio cargado: {request_data['name']} (Tipo: {request_data['type']})")
+                    # logger.debug(f"Servicio cargado: {request_data['name']} (Tipo: {request_data['type']})")
             except json.JSONDecodeError:
                 logger.error(f"Error de formato JSON en {file_path}")
             except Exception as e:
@@ -326,9 +330,9 @@ class PersistenceManager:
                 
                 # Verificación final - confirmar que el archivo existe
                 if os.path.exists(file_path):
-                    logger.info(f"✅ Verificación final: Archivo preservado tras actualización: {file_path}")
+                    logger.info(f"Verificación final: Archivo preservado tras actualización: {file_path}")
                 else:
-                    logger.error(f"❌ ERROR CRÍTICO: Archivo desapareció tras actualización: {file_path}")
+                    logger.error(f"ERROR CRÍTICO: Archivo desapareció tras actualización: {file_path}")
                     
             except Exception as write_error:
                 logger.error(f"Error al escribir archivo {file_path}: {str(write_error)}")
