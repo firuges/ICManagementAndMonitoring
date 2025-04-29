@@ -9,6 +9,9 @@ zeep==4.1.0
 lxml==4.9.1
 xmltodict==0.13.0
 
+#Notifications
+dicttoxml==1.7.16
+
 # Utilidades
 schedule==1.1.0
 jsonschema==4.17.3

@@ -16,6 +16,7 @@ import logging
 import tempfile
 import argparse
 from datetime import datetime
+import traceback
 from typing import Dict, Any, List, Optional
 
 # Obtener la ruta del directorio core
@@ -581,6 +582,69 @@ def notify_failures(notifier: EmailNotifier, persistence: PersistenceManager,
             
     except Exception as e:
         logger.error(f"Error al notificar fallos: {str(e)}", exc_info=True)
+
+def improved_monitor_arguments():
+    """
+    Improved argument parsing for the monitor script.
+    """
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Monitor de servicios SOAP/REST')
+    parser.add_argument('request_name', nargs='?', help='Nombre del request a verificar')
+    parser.add_argument('--notify', action='store_true', help='Forzar envío de notificaciones')
+    parser.add_argument('--data-dir', help='Directorio de datos de la aplicación')
+    parser.add_argument('--logs-dir', help='Directorio de logs de la aplicación')
+    parser.add_argument('--check-all', action='store_true', help='Verificar todos los servicios')
+    return parser.parse_args()
+
+def improved_path_detection(args):
+    """
+    Improved path detection for the monitor script.
+    
+    Args:
+        args: Command line arguments
+        
+    Returns:
+        tuple: (data_dir, logs_dir)
+    """
+    import os
+    import sys
+    
+    # If paths are provided as arguments, use them
+    if args.data_dir and os.path.exists(args.data_dir):
+        data_dir = args.data_dir
+    else:
+        # Try to determine application path
+        if getattr(sys, 'frozen', False):
+            # Execution from compiled app
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            # Execution from script
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            app_dir = os.path.dirname(current_dir)
+            
+        # Default data directory
+        data_dir = os.path.join(app_dir, 'data')
+    
+    # If logs directory is provided as argument, use it
+    if args.logs_dir and os.path.exists(args.logs_dir):
+        logs_dir = args.logs_dir
+    else:
+        # Try to determine logs path
+        if getattr(sys, 'frozen', False):
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            app_dir = os.path.dirname(current_dir)
+            
+        # Default logs directory
+        logs_dir = os.path.join(app_dir, 'logs')
+    
+    # Ensure directories exist
+    os.makedirs(data_dir, exist_ok=True)
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    return data_dir, logs_dir
 
 def main():
     """Función principal"""

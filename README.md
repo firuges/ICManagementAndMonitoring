@@ -18,7 +18,8 @@ Una aplicación de gestión y monitoreo de servicios SOAP con interfaz gráfica,
 - Python 3.7 o superior
 - PyQt5
 - Zeep (Cliente SOAP)
-- Bibliotecas adicionales (ver `requirements.txt`)
+- Requests (Cliente REST)
+- Bibliotecas adicionales (ver requirements.txt)
 
 ## Instalación
 
@@ -60,43 +61,46 @@ python app.py --check-all
 ```
 
 Guía de Usuario
-## 1. Gestión de Servicios
+1. Gestión de Servicios
 Para crear un nuevo servicio SOAP o REST:
 
-Ir a la pestaña "Gestión de Requests"
-Seleccionar el tipo de servicio (SOAP o REST)
-Completar los campos según el tipo:
+  1. Ir a la pestaña "Gestión de Requests"
+  2. Seleccionar el tipo de servicio (SOAP o REST)
+  3. Completar los campos según el tipo:
+
 Para SOAP:
 
-Nombre: Identificador descriptivo del servicio
-Descripción: Detalle del propósito del servicio
-URL WSDL: Dirección del WSDL del servicio
-Request XML: Estructura XML del request SOAP
+  * Nombre: Identificador descriptivo del servicio
+  * Descripción: Detalle del propósito del servicio
+  * URL WSDL: Dirección del WSDL del servicio
+  * Request XML: Estructura XML del request SOAP
 
 Para REST:
 
-Nombre: Identificador descriptivo del servicio
-Descripción: Detalle del propósito del servicio
-URL: Endpoint del servicio REST
-Método HTTP: GET, POST, PUT, DELETE, etc.
-Headers: Cabeceras HTTP requeridas
-Query Parameters: Parámetros de consulta
-Body JSON: Datos a enviar en formato JSON (para POST/PUT)
+  * Nombre: Identificador descriptivo del servicio
+  * Descripción: Detalle del propósito del servicio
+  * URL: Endpoint del servicio REST
+  * Método HTTP: GET, POST, PUT, DELETE, etc.
+  * Headers: Cabeceras HTTP requeridas
+  * Query Parameters: Parámetros de consulta
+  * Body JSON: Datos a enviar en formato JSON (para POST/PUT)
 
 
-Configurar patrones de validación:
+  4. Configurar patrones de validación:
 
-Definir cómo se validarán las respuestas (ver sección "Patrones de Validación")
-
-
-Configurar opciones de monitoreo:
-
-Intervalo: Frecuencia de verificación en minutos
-Activar monitoreo: Habilitar verificación automática
-Añadir al programador de tareas: Registrar en el sistema operativo
+    * Definir cómo se validarán las respuestas (ver sección "Patrones de Validación")
 
 
-Hacer clic en "Guardar"
+  5. Configurar opciones de monitoreo:
+
+    * Intervalo: Frecuencia de verificación en minutos
+    * Timeout: Tiempo máximo de espera para la respuesta
+    * Reintentos: Número de intentos en caso de fallo de conexión
+    * Activar monitoreo: Habilitar verificación automática
+    * Añadir al programador de tareas: Registrar en el sistema operativo
+
+
+  6. Hacer clic en "Guardar"
 
 ## 2. Patrones de Validación
 Los patrones de validación permiten verificar si la respuesta del servicio es correcta. Se configuran en formato JSON:
@@ -115,66 +119,79 @@ Los patrones de validación permiten verificar si la respuesta del servicio es c
     "resultado": null
   }
 }
+
 Donde:
 
-success_field: Campo que indica éxito/error (ej: "codMensaje" o "status")
-success_values: Lista de valores que indican éxito
-warning_values: Lista de valores que se tratan como advertencia
-failed_values: Lista de valores que indican fallo conocido
-validation_strategy: Estrategia de validación ("strict", "flexible", "permissive")
-alternative_paths: Rutas alternativas para validación
-expected_fields: Campos adicionales que deben existir, con valores específicos o null (solo verificar existencia)
+ * success_field: Campo que indica éxito/error (ej: "codMensaje" o "status")
+ * success_values: Lista de valores que indican éxito
+ * warning_values: Lista de valores que se tratan como advertencia
+ * failed_values: Lista de valores que indican fallo conocido
+ * validation_strategy: Estrategia de validación ("strict", "flexible", "permissive")
+ * alternative_paths: Rutas alternativas para validación
+ * expected_fields: Campos adicionales que deben existir, con valores específicos o null (solo verificar existencia)
 
 ## 3. Configuración de Notificaciones
 Para configurar las notificaciones por email:
 
-Ir a la pestaña "Configuración de Notificaciones"
-Completar la configuración SMTP:
+  1. Ir a la pestaña "Configuración de Notificaciones"
+  2. Completar la configuración SMTP:
 
-Servidor SMTP: Dirección del servidor de correo
-Puerto: Puerto de conexión (normalmente 587 para TLS)
-Usuario y Contraseña: Credenciales de acceso
-
-
-Añadir destinatarios de correo electrónico
-Configurar opciones de notificación:
-
-Notificar errores de conexión: Alertar problemas de conectividad
-Notificar errores de validación: Alertar respuestas incorrectas
+    * Servidor SMTP: Dirección del servidor de correo
+    * Puerto: Puerto de conexión (normalmente 587 para TLS)
+    * Usuario y Contraseña: Credenciales de acceso
 
 
-Hacer clic en "Guardar configuración"
+  3. Añadir destinatarios de correo electrónico
+  4. Configurar opciones de notificación:
+
+    * Notificar errores de conexión: Alertar problemas de conectividad
+    * Notificar errores de validación: Alertar respuestas incorrectas
+
+
+  5. Hacer clic en "Guardar configuración"
+
+## Contenido de las Notificaciones
+Las notificaciones por correo electrónico incluyen:
+
+  * Detalles del error ocurrido
+  * Solicitud XML/JSON original (como adjunto)
+  * Respuesta recibida (como adjunto)
+  * Información de diagnóstico
 
 ## 4. Monitoreo de Servicios
 La pestaña "Monitoreo" muestra:
 
-Tabla de Servicios: Lista de todos los servicios configurados
-Detalles del Servicio: Información detallada del servicio seleccionado
-Última Respuesta: Contenido de la última respuesta recibida
-Log de Eventos: Registro de actividades y errores
+  * Tabla de Servicios: Lista de todos los servicios configurados
+  * Detalles del Servicio: Información detallada del servicio seleccionado
+  * Última Respuesta: Contenido de la última respuesta recibida
+  * Log de Eventos: Registro de actividades y errores
 
 Funciones disponibles:
 
-Verificar: Comprobar un servicio específico
-Verificar Todos: Comprobar todos los servicios
-Actualizar: Refrescar la lista de servicios
-Filtrar por Grupo: Ver solo servicios de un grupo específico
+  * Verificar: Comprobar un servicio específico
+  * Verificar Todos: Comprobar todos los servicios
+  * Actualizar: Refrescar la lista de servicios
+  * Filtrar por Grupo: Ver solo servicios de un grupo específico
 
 ## 5. Herramientas de Diagnóstico
 El sistema incluye herramientas para diagnosticar y solucionar problemas:
 
-validation_tester.py: Prueba la validación de un servicio específico
-Copiarpython tools/validation_tester.py "NombreServicio"
+  * validation_tester.py: Prueba la validación de un servicio específico
+    - python tools/validation_tester.py "NombreServicio"
 
-validation_parity.py: Verifica la consistencia entre validaciones SOAP y REST
-Copiarpython tools/validation_parity.py
+  * validation_parity.py: Verifica la consistencia entre validaciones SOAP y REST
+    - python tools/validation_parity.py
 
-update_validation_pattern.py: Actualiza patrones de validación existentes
-Copiarpython tools/update_validation_pattern.py "NombreServicio"
+  * update_validation_pattern.py: Actualiza patrones de validación existentes
+    - python tools/update_validation_pattern.py "NombreServicio"
 
+  * xml_validation_tool.py: Diagnostica problemas con XML complejos
+    - python tools/xml_validation_tool.py archivo.xml
 
+  * Script de prueba para validar el manejo mejorado de namespaces complejos
+    - python test_validation_improvements.py
 ## Estructura del Proyecto
-Copiarsoap_rest_monitor/
+soap_rest_monitor/
 │
 ├── app.py                  # Punto de entrada de la aplicación
 ├── requirements.txt        # Dependencias
@@ -182,10 +199,11 @@ Copiarsoap_rest_monitor/
 ├── core/                   # Componentes del núcleo
 │   ├── persistence.py      # Gestión de archivos JSON
 │   ├── soap_client.py      # Cliente SOAP y validación
-│   ├── rest_client.py      # Cliente REST y validación
+│   ├── rest_client.py      # Cliente REST
 │   ├── notification.py     # Sistema de notificaciones
 │   ├── scheduler.py        # Programador de tareas
-│   └── monitor.py          # Script de monitoreo independiente
+│   ├── monitor.py          # Script de monitoreo independiente
+│   └── utils.py            # Utilidades generales
 │
 ├── gui/                    # Componentes de interfaz gráfica
 │   ├── main_window.py      # Ventana principal
@@ -206,55 +224,65 @@ Copiarsoap_rest_monitor/
 ├── tools/                  # Herramientas de utilidad
 │   ├── validation_tester.py       # Diagnóstico de validación
 │   ├── validation_parity.py       # Verificación de consistencia
-│   └── update_validation_pattern.py # Actualización de patrones
+│   ├── update_validation_pattern.py # Actualización de patrones
+│   └── xml_validation_tool.py     # Herramienta de análisis XML
 │
 ├── task_templates/         # Plantillas para tareas programadas
 │
 └── examples/               # Scripts de ejemplo
-    └── create_ejectransfinter_request.py  # Creación de request de ejemplo
-Integración con el Sistema de Tareas
+    └── create_service_request.py  # Creación de request de ejemplo
+
+
+##  Integración con el Sistema de Tareas
 La aplicación puede registrar tareas en el programador del sistema operativo:
 
-En Windows: Usa el programador de tareas (Task Scheduler)
-En Linux/Unix: Usa crontab
+  * En Windows: Usa el programador de tareas (Task Scheduler)
+  * En Linux/Unix: Usa crontab
 
 Para activar esta función, marque la opción "Añadir al programador de tareas del sistema" al crear o editar un servicio.
-Solución de Problemas
-Errores de Validación
 
-Si un servicio está fallando en validación, use las herramientas de diagnóstico:
-Copiarpython tools/validation_tester.py "NombreServicio"
+## Solución de Problemas
+  Errores de Validación
 
-Para actualizar a un patrón de validación flexible:
-Copiarpython tools/update_validation_pattern.py "NombreServicio"
+  * Si un servicio está fallando en validación, use las herramientas de diagnóstico:
+    - python tools/validation_tester.py "NombreServicio"
+  * Para actualizar a un patrón de validación flexible:
+    - python tools/update_validation_pattern.py "NombreServicio"
 
 
-Errores de Conexión SMTP
+## Errores de Conexión SMTP
 
-Verifique que el servidor SMTP esté correctamente configurado
+  * Verifique que el servidor SMTP esté correctamente configurado
 Si usa Gmail, habilite "Acceso de aplicaciones menos seguras" o use una "Contraseña de aplicación"
 
-Errores en Servicios SOAP/REST
+## Errores en Servicios SOAP/REST
 
-Verifique que las URLs sean accesibles
-Compruebe que el formato del XML/JSON sea correcto
-Verifique que los namespaces/headers sean correctos
+  * Verifique que las URLs sean accesibles
+  * Compruebe que el formato del XML/JSON sea correcto
+  * Verifique que los namespaces/headers sean correctos
+  * Ajuste los valores de timeout y reintentos si el servicio es lento
 
-Cambios Recientes
+## Estrategias de Validación
+La aplicación soporta varias estrategias de validación:
 
-Validación flexible y consistente para servicios SOAP y REST
-Herramientas de diagnóstico y corrección de problemas
-Estandarización de patrones de validación
-Mejor manejo de errores y reintentos
-Configuración de timeout personalizable por servicio
+  * strict: Todos los criterios deben cumplirse exactamente
+  * flexible: Permite distintas estructuras y valores alternativos
+  * permissive: Acepta casi cualquier respuesta no vacía
+
+Los patrones de validación flexible pueden procesar:
+
+  * Estructuras XML/JSON anidadas
+  * Múltiples rutas para campo de éxito
+  * Namespaces complejos (como v1.)
+  * Valores de advertencia que no indican errores críticos
 
 Licencia
 MIT License
 Contacto
 Para soporte o consultas:
 
-Email: soporte@ejemplo.com
-Repositorio: https://github.com/username/soap-rest-monitor
+Email: maximilianocesan@gmail.com
+Repositorio: https://github.com/firuges/soap-rest-monitor
 
 
 

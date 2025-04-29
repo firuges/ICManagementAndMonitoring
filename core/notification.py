@@ -1,7 +1,9 @@
+import json
 import logging
 import smtplib
 import os
 import sys
+import time
 import traceback
 import tempfile
 from email.mime.text import MIMEText
@@ -190,6 +192,69 @@ class EmailNotifier:
                     
         except Exception as e:
             logger.warning(f"No se pudo cargar configuración SMTP desde archivo: {str(e)}")
+            
+    def improved_email_notifier_config_loading(base_path=None):
+        """
+        Enhanced configuration loading for the EmailNotifier to better handle
+        various execution environments.
+        
+        Args:
+            base_path (str): Optional base path for configuration files
+            
+        Returns:
+            dict: SMTP configuration
+        """
+        import os
+        import json
+        import sys
+        import logging
+        
+        logger = logging.getLogger('notification')
+        
+        # List of possible locations for SMTP configuration
+        possible_paths = []
+        
+        # Add specified base path if provided
+        if base_path:
+            possible_paths.append(os.path.join(base_path, 'smtp_config.json'))
+        
+        # Try to determine application path
+        if getattr(sys, 'frozen', False):
+            # Execution from compiled app
+            app_dir = os.path.dirname(sys.executable)
+        else:
+            # Execution from script
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            app_dir = os.path.dirname(current_dir)
+        
+        # Add standard locations relative to application path
+        possible_paths.extend([
+            os.path.join(app_dir, 'data', 'smtp_config.json'),
+            os.path.join(app_dir, 'smtp_config.json'),
+            os.path.join(os.getcwd(), 'data', 'smtp_config.json'),
+            os.path.join(os.getcwd(), 'smtp_config.json')
+        ])
+        
+        # Try all possible paths
+        for path in possible_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        smtp_config = json.load(f)
+                    logger.info(f"SMTP configuration loaded from {path}")
+                    return smtp_config
+                except Exception as e:
+                    logger.warning(f"Failed to load SMTP config from {path}: {str(e)}")
+        
+        logger.warning("No SMTP configuration found, using defaults")
+        return {
+            'server': 'smtp.gmail.com',
+            'port': 587,
+            'use_tls': True,
+            'username': '',
+            'password': '',
+            'from_email': ''
+        }
     
     
     def configure(self, smtp_config: Dict[str, Any]) -> None:
@@ -531,7 +596,7 @@ class EmailNotifier:
         
         Este es un mensaje automático generado por el sistema de monitoreo SOAP/REST.
         """
-        
+        html_content_formatted = self.create_enhanced_notification_html(service_name, error_details, service_type)
         # Contenido HTML (más formateado)
         html_content = f"""
         <html>
@@ -604,7 +669,7 @@ class EmailNotifier:
             
         logger.debug(f"[DEBUG_FLOW] Adjuntos preparados: {len(attachments)}")
         # Enviar la notificación
-        success = self.send_notification(recipients, subject, content, html_content, attachments)
+        success = self.send_notification(recipients, subject, content, html_content_formatted, attachments)
         
         # Registrar el intento para diagnóstico
         self.log_notification_attempt(service_name, success, recipients, attachments)
@@ -614,15 +679,16 @@ class EmailNotifier:
     def _prepare_soap_attachments(self, service_name: str, error_details: Dict[str, Any], 
                              attachments: List[Dict[str, Any]]) -> None:
         """
-        Prepara los adjuntos para notificaciones de servicios SOAP.
+        Enhanced version of the _prepare_soap_attachments method with better 
+        error handling and more comprehensive attachments.
         
         Args:
-            service_name (str): Nombre del servicio
-            error_details (Dict[str, Any]): Detalles del error
-            attachments (List[Dict[str, Any]]): Lista de adjuntos a modificar
+            service_name (str): Name of the service
+            error_details (Dict[str, Any]): Error details
+            attachments (List[Dict[str, Any]]): List of attachments to modify
         """
         try:
-            # 1. Adjuntar el XML de solicitud si está disponible
+            # 1. Attach the request XML if available
             request_xml = error_details.get('request_xml')
             if request_xml:
                 attachments.append({
@@ -630,29 +696,38 @@ class EmailNotifier:
                     'filename': f"{service_name}_request.xml",
                     'mime_type': 'application/xml'
                 })
-                logger.debug(f"XML de solicitud añadido para {service_name}")
+                logger.debug(f"Request XML added for {service_name}")
             
-            # 2. Adjuntar la respuesta sin procesar si está disponible
+            # 2. Attach the raw response if available
             response_text = error_details.get('response_text', '')
             
-            # Intentar obtener de otras fuentes si no está disponible directamente
+            # Try to get from alternate sources if not available directly
             if not response_text:
-                if 'raw_response_xml' in error_details:
-                    response_text = error_details['raw_response_xml']
-                elif 'response' in error_details and isinstance(error_details['response'], str):
-                    response_text = error_details['response']
-                
+                for source in ['raw_response_xml', 'response', 'error']:
+                    if source in error_details and error_details[source]:
+                        if isinstance(error_details[source], str):
+                            response_text = error_details[source]
+                            break
+                        elif isinstance(error_details[source], dict):
+                            # Convert dict to formatted JSON
+                            try:
+                                response_text = json.dumps(error_details[source], indent=2, default=str)
+                                break
+                            except:
+                                # If JSON conversion fails, use string representation
+                                response_text = str(error_details[source])
+                                break
+            
             if response_text:
-                # Determinar si es XML válido para elegir la extensión adecuada
+                # Determine if it's XML or another format
                 is_xml = False
                 try:
                     if response_text.strip().startswith('<') and '>' in response_text:
-                        # Verificación básica para determinar si parece XML
                         is_xml = True
                 except:
                     is_xml = False
                     
-                # Elegir extensión adecuada
+                # Choose appropriate extension and mime type
                 ext = 'xml' if is_xml else 'txt'
                 mime_type = 'application/xml' if is_xml else 'text/plain'
                 
@@ -661,225 +736,550 @@ class EmailNotifier:
                     'filename': f"{service_name}_response_raw.{ext}",
                     'mime_type': mime_type
                 })
-                logger.debug(f"Respuesta sin procesar añadida para {service_name} (formato: {ext})")
+                logger.debug(f"Raw response added for {service_name} (format: {ext})")
             
-            # 3. Si hay una respuesta procesada como diccionario y es diferente a la respuesta sin procesar
-            response = error_details.get('response')
-            if isinstance(response, dict) and response:
-                # Verificar si ya tenemos el contenido de la respuesta como texto
-                if not response_text or response_text != str(response):
+            # 3. If there's a processed response as a dictionary, include a formatted version
+            response_dict = error_details.get('response')
+            if isinstance(response_dict, dict) and response_dict:
+                # Check if we already have this content as text
+                if not response_text or response_text != str(response_dict):
                     try:
-                        # Intentar convertir a XML formateado
-                        import dicttoxml
-                        xml_response = dicttoxml.dicttoxml(response, custom_root='response', attr_type=False)
-                        response_dict_text = xml_response.decode('utf-8')
-                        
-                        # Intentar formatear XML para mejor legibilidad
-                        try:
-                            import xml.dom.minidom as md
-                            response_dict_text = md.parseString(response_dict_text).toprettyxml(indent="  ")
-                        except:
-                            pass
+                        # Try to convert to formatted JSON
+                        response_dict_text = json.dumps(response_dict, indent=2, default=str)
                         
                         attachments.append({
                             'data': response_dict_text,
-                            'filename': f"{service_name}_response_processed.xml",
-                            'mime_type': 'application/xml'
+                            'filename': f"{service_name}_response_processed.json",
+                            'mime_type': 'application/json'
                         })
-                        logger.debug(f"Respuesta procesada (XML) añadida para {service_name}")
-                    except ImportError:
-                        # Si dicttoxml no está disponible, usar JSON
-                        import json
-                        try:
-                            response_dict_text = json.dumps(response, indent=2, default=str)
-                            
-                            attachments.append({
-                                'data': response_dict_text,
-                                'filename': f"{service_name}_response_processed.json",
-                                'mime_type': 'application/json'
-                            })
-                            logger.debug(f"Respuesta procesada (JSON) añadida para {service_name}")
-                        except Exception as json_err:
-                            logger.warning(f"Error al convertir respuesta a JSON: {str(json_err)}")
+                        logger.debug(f"Processed response (JSON) added for {service_name}")
+                    except Exception as json_err:
+                        logger.warning(f"Error converting response to JSON: {str(json_err)}")
+                        
+                        # Fallback to string representation
+                        attachments.append({
+                            'data': str(response_dict),
+                            'filename': f"{service_name}_response_processed.txt",
+                            'mime_type': 'text/plain'
+                        })
             
-            # 4. Buscar archivos de debug existentes para este servicio
-            debug_files = self._find_debug_files(service_name, 'response')
-            
-            for debug_file in debug_files:
-                # Evitar duplicar contenido
-                content_already_added = False
-                for att in attachments:
-                    if isinstance(att['data'], str) and att['data'] == debug_file['content']:
-                        content_already_added = True
-                        break
-                
-                if not content_already_added:
+            # 4. Include validation pattern if available
+            validation_pattern = error_details.get('validation_pattern')
+            if validation_pattern:
+                try:
+                    if isinstance(validation_pattern, dict):
+                        validation_text = json.dumps(validation_pattern, indent=2)
+                    else:
+                        validation_text = str(validation_pattern)
+                        
                     attachments.append({
-                        'data': debug_file['content'],
-                        'filename': debug_file['filename'],
-                        'mime_type': debug_file['mime_type']
+                        'data': validation_text,
+                        'filename': f"{service_name}_validation_pattern.json",
+                        'mime_type': 'application/json'
                     })
-                    logger.debug(f"Archivo de debug añadido: {debug_file['filename']}")
-
-            logger.debug(f"Adjuntos preparados para {service_name}: {len(attachments)} archivos")
-            for i, att in enumerate(attachments):
-                filename = att.get('filename', 'sin_nombre')
-                size = len(att['data']) if isinstance(att['data'], str) else len(att['data'])
-                logger.debug(f"  {i+1}. {filename} ({size} bytes)")
+                    logger.debug(f"Validation pattern added for {service_name}")
+                except Exception as val_err:
+                    logger.warning(f"Error including validation pattern: {str(val_err)}")
+            
+            # 5. Include service configuration (sanitized)
+            service_config = error_details.get('service_config', {})
+            if service_config:
+                try:
+                    # Remove sensitive fields
+                    sanitized_config = service_config.copy()
+                    if 'password' in sanitized_config:
+                        sanitized_config['password'] = '********'
+                    
+                    config_text = json.dumps(sanitized_config, indent=2, default=str)
+                    attachments.append({
+                        'data': config_text,
+                        'filename': f"{service_name}_service_config.json",
+                        'mime_type': 'application/json'
+                    })
+                    logger.debug(f"Service configuration added for {service_name}")
+                except Exception as config_err:
+                    logger.warning(f"Error including service configuration: {str(config_err)}")
+            
+            # 6. Add diagnostic report
+            try:
+                diagnostic_info = {
+                    'timestamp': datetime.now().isoformat(),
+                    'service_name': service_name,
+                    'error_type': error_details.get('status', 'unknown'),
+                    'error_message': error_details.get('error', 'No error message available'),
+                    'python_version': sys.version,
+                    'platform': sys.platform,
+                    'environment': {
+                        'executable': sys.executable,
+                        'is_frozen': getattr(sys, 'frozen', False)
+                    }
+                }
+                
+                diagnostic_text = json.dumps(diagnostic_info, indent=2, default=str)
+                attachments.append({
+                    'data': diagnostic_text,
+                    'filename': f"{service_name}_diagnostic_info.json",
+                    'mime_type': 'application/json'
+                })
+                logger.debug(f"Diagnostic info added for {service_name}")
+            except Exception as diag_err:
+                logger.warning(f"Error creating diagnostic info: {str(diag_err)}")
+                
         except Exception as e:
-            logger.error(f"Error al preparar adjuntos SOAP: {str(e)}")
+            logger.error(f"Error in enhance_soap_attachments: {str(e)}", exc_info=True)
+            # Add a basic error log as attachment to ensure something is sent
+            try:
+                error_log = f"Error preparing attachments: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+                attachments.append({
+                    'data': error_log,
+                    'filename': f"{service_name}_attachment_error.log",
+                    'mime_type': 'text/plain'
+                })
+            except:
+                pass
         
     def _prepare_rest_attachments(self, service_name: str, error_details: Dict[str, Any], 
                              attachments: List[Dict[str, Any]]) -> None:
         """
-        Prepara los adjuntos para notificaciones de servicios REST.
+        Enhanced version of the _prepare_rest_attachments method with better 
+        error handling and more comprehensive attachments.
         
         Args:
-            service_name (str): Nombre del servicio
-            error_details (Dict[str, Any]): Detalles del error
-            attachments (List[Dict[str, Any]]): Lista de adjuntos a modificar
+            service_name (str): Name of the service
+            error_details (Dict[str, Any]): Error details
+            attachments (List[Dict[str, Any]]): List of attachments to modify
         """
         try:
-            # 1. Adjuntar el JSON del request si está disponible
+            # 1. Add request details
+            request_details = {}
+            
+            # Gather request information from various possible sources
+            for field in ['url', 'method', 'headers', 'params']:
+                if field in error_details:
+                    request_details[field] = error_details[field]
+                elif 'request_details' in error_details and field in error_details['request_details']:
+                    request_details[field] = error_details['request_details'][field]
+            
+            # Gather request body from various possible sources
             request_body = None
+            for field in ['request_body', 'json_data']:
+                if field in error_details and error_details[field]:
+                    request_body = error_details[field]
+                    break
+                elif 'request_details' in error_details and field in error_details['request_details']:
+                    request_body = error_details['request_details'][field]
+                    break
             
-            # Intentar obtener el cuerpo de solicitud desde varias fuentes posibles
-            if 'request_body' in error_details:
-                request_body = error_details['request_body']
-            elif 'request_details' in error_details and 'request_body' in error_details['request_details']:
-                request_body = error_details['request_details']['request_body']
-            elif 'json_data' in error_details:
-                request_body = error_details['json_data']
-                
             if request_body:
-                # Determinar si es un diccionario (JSON) o texto
-                if isinstance(request_body, dict):
-                    import json
-                    request_text = json.dumps(request_body, indent=2, default=str)
-                    filename = f"{service_name}_request.json"
-                    mime_type = 'application/json'
-                else:
-                    request_text = str(request_body)
-                    # Verificar si parece JSON
-                    try:
-                        import json
-                        json.loads(request_text)
-                        filename = f"{service_name}_request.json"
-                        mime_type = 'application/json'
-                    except (json.JSONDecodeError, TypeError):
-                        filename = f"{service_name}_request.txt"
-                        mime_type = 'text/plain'
-                    
-                attachments.append({
-                    'data': request_text,
-                    'filename': filename,
-                    'mime_type': mime_type
-                })
-                logger.debug(f"Request body añadido para {service_name}")
+                request_details['body'] = request_body
             
-            # 2. Adjuntar la respuesta REST sin normalizar
+            # Add the collected request details
+            if request_details:
+                try:
+                    request_text = json.dumps(request_details, indent=2, default=str)
+                    attachments.append({
+                        'data': request_text,
+                        'filename': f"{service_name}_request_details.json",
+                        'mime_type': 'application/json'
+                    })
+                    logger.debug(f"Request details added for {service_name}")
+                except Exception as req_err:
+                    logger.warning(f"Error formatting request details: {str(req_err)}")
+                    
+                    # Fallback to string representation
+                    attachments.append({
+                        'data': str(request_details),
+                        'filename': f"{service_name}_request_details.txt",
+                        'mime_type': 'text/plain'
+                    })
+            
+            # 2. Add REST response (try different formats)
             response_text = error_details.get('response_text', '')
             
-            # Si tenemos texto de respuesta sin procesar
+            # If there's response text, determine format and add
             if response_text:
-                # Determinar el formato de la respuesta
-                mime_type = 'text/plain'
-                filename = f"{service_name}_response_raw.txt"
-                
-                # Intentar determinar si es JSON
                 try:
-                    import json
-                    json.loads(response_text)  # Solo para verificar
-                    filename = f"{service_name}_response_raw.json"
-                    mime_type = 'application/json'
-                except (json.JSONDecodeError, TypeError):
-                    # Verificar si parece XML
+                    # Check if it's JSON
+                    json.loads(response_text)  # Just to verify
+                    attachments.append({
+                        'data': response_text,
+                        'filename': f"{service_name}_response.json",
+                        'mime_type': 'application/json'
+                    })
+                    logger.debug(f"JSON response added for {service_name}")
+                except json.JSONDecodeError:
+                    # Not JSON, check if it's XML
                     if response_text.strip().startswith('<') and '>' in response_text:
-                        filename = f"{service_name}_response_raw.xml"
-                        mime_type = 'application/xml'
-                
-                attachments.append({
-                    'data': response_text,
-                    'filename': filename,
-                    'mime_type': mime_type
-                })
-                logger.debug(f"Respuesta REST sin procesar añadida para {service_name} (formato: {filename.split('.')[-1]})")
-            
-            # 3. Si hay una respuesta procesada como diccionario, también incluirla
-            response = error_details.get('response', {})
-            
-            if isinstance(response, dict) and response:
-                try:
-                    import json
-                    processed_response = json.dumps(response, indent=2, default=str)
-                    
-                    # Verificar si este contenido ya está en algún otro adjunto para evitar duplicados
-                    content_already_added = False
-                    for att in attachments:
-                        if isinstance(att['data'], str) and att['data'] == processed_response:
-                            content_already_added = True
-                            break
-                    
-                    if not content_already_added:
                         attachments.append({
-                            'data': processed_response,
+                            'data': response_text,
+                            'filename': f"{service_name}_response.xml",
+                            'mime_type': 'application/xml'
+                        })
+                        logger.debug(f"XML response added for {service_name}")
+                    else:
+                        # Plain text
+                        attachments.append({
+                            'data': response_text,
+                            'filename': f"{service_name}_response.txt",
+                            'mime_type': 'text/plain'
+                        })
+                        logger.debug(f"Text response added for {service_name}")
+            
+            # 3. Add processed response object if available
+            response_obj = error_details.get('response')
+            if isinstance(response_obj, dict) and response_obj:
+                try:
+                    processed_text = json.dumps(response_obj, indent=2, default=str)
+                    
+                    # Check if this content is already included
+                    is_duplicate = False
+                    for att in attachments:
+                        if isinstance(att.get('data'), str) and att['data'] == processed_text:
+                            is_duplicate = True
+                            break
+                            
+                    if not is_duplicate:
+                        attachments.append({
+                            'data': processed_text,
                             'filename': f"{service_name}_response_processed.json",
                             'mime_type': 'application/json'
                         })
-                        logger.debug(f"Respuesta REST procesada añadida para {service_name}")
-                except Exception as json_err:
-                    logger.warning(f"Error al procesar respuesta JSON: {str(json_err)}")
+                        logger.debug(f"Processed response object added for {service_name}")
+                except Exception as proc_err:
+                    logger.warning(f"Error processing response object: {str(proc_err)}")
             
-            # 4. Si hay headers de respuesta, incluirlos
+            # 4. Add response headers if available
             response_headers = None
-            
-            # Intentar obtener headers desde varias fuentes posibles
-            if 'headers' in error_details:
-                response_headers = error_details['headers']
-            elif 'response_headers' in error_details:
-                response_headers = error_details['response_headers']
-            
+            for field in ['headers', 'response_headers']:
+                if field in error_details:
+                    response_headers = error_details[field]
+                    break
+                    
             if response_headers:
                 try:
-                    import json
                     headers_text = json.dumps(response_headers, indent=2, default=str)
-                    
                     attachments.append({
                         'data': headers_text,
                         'filename': f"{service_name}_response_headers.json",
                         'mime_type': 'application/json'
                     })
-                    logger.debug(f"Headers de respuesta añadidos para {service_name}")
+                    logger.debug(f"Response headers added for {service_name}")
                 except Exception as headers_err:
-                    logger.warning(f"Error al procesar headers: {str(headers_err)}")
+                    logger.warning(f"Error formatting response headers: {str(headers_err)}")
             
-            # 5. Buscar archivos de debug existentes para este servicio
-            debug_files = self._find_debug_files(service_name, 'response')
-            
-            for debug_file in debug_files:
-                # Evitar duplicar contenido
-                content_already_added = False
-                for att in attachments:
-                    if isinstance(att['data'], str) and att['data'] == debug_file['content']:
-                        content_already_added = True
-                        break
-                
-                if not content_already_added:
+            # 5. Include validation pattern if available
+            validation_pattern = error_details.get('validation_pattern')
+            if validation_pattern:
+                try:
+                    if isinstance(validation_pattern, dict):
+                        validation_text = json.dumps(validation_pattern, indent=2)
+                    else:
+                        validation_text = str(validation_pattern)
+                        
                     attachments.append({
-                        'data': debug_file['content'],
-                        'filename': debug_file['filename'],
-                        'mime_type': debug_file['mime_type']
+                        'data': validation_text,
+                        'filename': f"{service_name}_validation_pattern.json",
+                        'mime_type': 'application/json'
                     })
-                    logger.debug(f"Archivo de debug añadido: {debug_file['filename']}")
-            logger.debug(f"Adjuntos preparados para {service_name}: {len(attachments)} archivos")
-            for i, att in enumerate(attachments):
-                filename = att.get('filename', 'sin_nombre')
-                size = len(att['data']) if isinstance(att['data'], str) else len(att['data'])
-                logger.debug(f"  {i+1}. {filename} ({size} bytes)")
-        except Exception as e:
-            logger.error(f"Error al preparar adjuntos REST: {str(e)}", exc_info=True)
+                    logger.debug(f"Validation pattern added for {service_name}")
+                except Exception as val_err:
+                    logger.warning(f"Error including validation pattern: {str(val_err)}")
+                    
+            # 6. Add diagnostic report
+            try:
+                diagnostic_info = {
+                    'timestamp': datetime.now().isoformat(),
+                    'service_name': service_name,
+                    'error_type': error_details.get('status', 'unknown'),
+                    'error_message': error_details.get('error', 'No error message available'),
+                    'python_version': sys.version,
+                    'platform': sys.platform,
+                    'environment': {
+                        'executable': sys.executable,
+                        'is_frozen': getattr(sys, 'frozen', False)
+                    }
+                }
+                
+                diagnostic_text = json.dumps(diagnostic_info, indent=2, default=str)
+                attachments.append({
+                    'data': diagnostic_text,
+                    'filename': f"{service_name}_diagnostic_info.json",
+                    'mime_type': 'application/json'
+                })
+                logger.debug(f"Diagnostic info added for {service_name}")
+            except Exception as diag_err:
+                logger.warning(f"Error creating diagnostic info: {str(diag_err)}")
             
-    
+        except Exception as e:
+            logger.error(f"Error in enhance_rest_attachments: {str(e)}", exc_info=True)
+            # Add a basic error log as attachment to ensure something is sent
+            try:
+                error_log = f"Error preparing attachments: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+                attachments.append({
+                    'data': error_log,
+                    'filename': f"{service_name}_attachment_error.log",
+                    'mime_type': 'text/plain'
+                })
+            except:
+                pass
+            
+    def create_enhanced_notification_html(self, service_name: str, error_details: Dict[str, Any], service_type: str) -> str:
+        """
+        Creates enhanced HTML content for error notifications with more detailed information.
+        
+        Args:
+            service_name (str): Name of the service
+            error_details (Dict[str, Any]): Error details
+            service_type (str): Type of service (SOAP or REST)
+            
+        Returns:
+            str: HTML content for notification
+        """
+        # Extract details
+        status = error_details.get('status', 'desconocido')
+        error_message = error_details.get('error', 'No disponible')
+        timestamp = error_details.get('timestamp', datetime.now().isoformat())
+        
+        # Format timestamp if it's an ISO string
+        try:
+            if isinstance(timestamp, str):
+                timestamp_dt = datetime.fromisoformat(timestamp)
+                formatted_timestamp = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                formatted_timestamp = timestamp
+        except:
+            formatted_timestamp = timestamp
+            
+        # Get additional information
+        service_group = error_details.get('group', '')
+        validation_error = error_details.get('validation_error', '')
+        validation_message = error_details.get('validation_message', '')
+        
+        # Create HTML with improved styling
+        html = """
+        <html>
+        <head>
+            <style>
+                body { 
+                    font-family: Arial, sans-serif; 
+                    color: #333333;
+                    margin: 0;
+                    padding: 20px;
+                    background-color: #f9f9f9;
+                }
+                .container {
+                    max-width: 800px;
+                    margin: 0 auto;
+                    background-color: #ffffff;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    padding: 30px;
+                }
+                .header {
+                    background-color: #D8000C;
+                    color: white;
+                    padding: 15px 20px;
+                    margin: -30px -30px 20px -30px;
+                    border-radius: 8px 8px 0 0;
+                    display: flex;
+                    align-items: center;
+                }
+                .header-icon {
+                    font-size: 24px;
+                    margin-right: 10px;
+                }
+                h1 {
+                    margin: 0;
+                    font-size: 22px;
+                }
+                h2 {
+                    color: #333;
+                    border-bottom: 1px solid #eee;
+                    padding-bottom: 8px;
+                    margin-top: 30px;
+                }
+                .info-section {
+                    background-color: #f5f5f5;
+                    border-radius: 4px;
+                    padding: 15px;
+                    margin: 15px 0;
+                }
+                .error-box {
+                    background-color: #ffebee;
+                    border-left: 4px solid #D8000C;
+                    padding: 12px 15px;
+                    margin: 15px 0;
+                    border-radius: 0 4px 4px 0;
+                }
+                .warning-box {
+                    background-color: #FFF3CD;
+                    border-left: 4px solid #ffc107;
+                    padding: 12px 15px;
+                    margin: 15px 0;
+                    border-radius: 0 4px 4px 0;
+                }
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 15px 0;
+                }
+                th, td {
+                    text-align: left;
+                    padding: 10px;
+                    border-bottom: 1px solid #eee;
+                }
+                th {
+                    background-color: #f5f5f5;
+                    font-weight: bold;
+                }
+                tr:nth-child(even) {
+                    background-color: #fcfcfc;
+                }
+                .footer {
+                    font-size: 12px;
+                    color: #666;
+                    margin-top: 30px;
+                    text-align: center;
+                    border-top: 1px solid #eee;
+                    padding-top: 15px;
+                }
+                .badge {
+                    display: inline-block;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    font-weight: bold;
+                    text-transform: uppercase;
+                }
+                .badge-soap {
+                    background-color: #E3F2FD;
+                    color: #1565C0;
+                }
+                .badge-rest {
+                    background-color: #E8F5E9;
+                    color: #2E7D32;
+                }
+                .attachments-info {
+                    background-color: #EDE7F6;
+                    border-radius: 4px;
+                    padding: 12px 15px;
+                    margin: 15px 0;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <span class="header-icon">⚠️</span>
+                    <h1>Alerta: Fallo en servicio""" + f" {service_type}" + """</h1>
+                </div>
+                
+                <p>Se ha detectado un fallo en el servicio: <strong>""" + service_name + """</strong></p>
+                
+                <div class="info-section">
+                    <h2>Detalles del error:</h2>
+                    <table>
+                        <tr>
+                            <th>Estado</th>
+                            <td>""" + status + """</td>
+                        </tr>
+                        <tr>
+                            <th>Mensaje</th>
+                            <td class="error-box">""" + error_message + """</td>
+                        </tr>
+                        <tr>
+                            <th>Fecha y hora</th>
+                            <td>""" + str(formatted_timestamp) + """</td>
+                        </tr>
+                        <tr>
+                            <th>Tipo de servicio</th>
+                            <td><span class="badge badge-""" + service_type.lower() + """">""" + service_type + """</span></td>
+                        </tr>
+        """
+        
+        if service_group:
+            html += """
+                        <tr>
+                            <th>Grupo</th>
+                            <td>""" + service_group + """</td>
+                        </tr>
+            """
+        
+        # Add validation error if present
+        if validation_error:
+            html += """
+                        <tr>
+                            <th>Error de validación</th>
+                            <td class="error-box">""" + validation_error + """</td>
+                        </tr>
+            """
+        
+        # Add validation message if present
+        if validation_message:
+            html += """
+                        <tr>
+                            <th>Mensaje de validación</th>
+                            <td class="warning-box">""" + validation_message + """</td>
+                        </tr>
+            """
+        
+        # Add service-specific details
+        if service_type == "SOAP":
+            wsdl_url = error_details.get('wsdl_url', '')
+            if wsdl_url:
+                html += """
+                        <tr>
+                            <th>URL WSDL</th>
+                            <td>""" + wsdl_url + """</td>
+                        </tr>
+                """
+        else:  # REST
+            url = error_details.get('url', '')
+            method = error_details.get('method', '')
+            if url:
+                html += """
+                        <tr>
+                            <th>URL</th>
+                            <td>""" + url + """</td>
+                        </tr>
+                """
+            if method:
+                html += """
+                        <tr>
+                            <th>Método</th>
+                            <td>""" + method + """</td>
+                        </tr>
+                """
+        
+        html += """
+                    </table>
+                </div>
+                
+                <p>Por favor, verifique el estado del servicio lo antes posible.</p>
+                
+                <div class="attachments-info">
+                    <h3>Archivos adjuntos</h3>
+                    <p>Se han adjuntado los siguientes archivos para su análisis:</p>
+                    <ul>
+                        <li>Solicitud original (request)</li>
+                        <li>Respuesta recibida (response)</li>
+                        <li>Patrón de validación utilizado</li>
+                        <li>Información de diagnóstico</li>
+                    </ul>
+                    <p><strong>Nota:</strong> Estos archivos son cruciales para el diagnóstico y resolución del problema.</p>
+                </div>
+                
+                <div class="footer">
+                    Este es un mensaje automático generado por el sistema de monitoreo SOAP/REST.<br>
+                    Fecha de generación: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html
+
     def _find_debug_files(self, service_name: str, file_type: str) -> List[Dict[str, Any]]:
         """
         Encuentra archivos de debug relacionados con un servicio para adjuntar.

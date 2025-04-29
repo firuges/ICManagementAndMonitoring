@@ -1,3 +1,5 @@
+import ctypes
+import json
 import os
 import logging
 import schedule
@@ -22,6 +24,17 @@ logger = logging.getLogger('scheduler')
 
 class SOAPMonitorScheduler:
     """Programador de tareas para monitoreo de servicios SOAP"""
+    def get_application_path():
+        """Obtiene el directorio base de la aplicación, compatible con .exe"""
+        if getattr(sys, 'frozen', False):
+            # Estamos ejecutando en aplicación compilada
+            return os.path.dirname(sys.executable)
+        else:
+            # Estamos ejecutando en modo script
+            return os.path.dirname(os.path.abspath(__file__))
+
+    # Configurar directorio raíz
+    application_path = get_application_path()
     
     def __init__(self):
         """Inicializa el programador de tareas"""
@@ -232,75 +245,89 @@ class SOAPMonitorScheduler:
     
     def generate_system_task(self, task_name: str, interval_minutes: int) -> bool:
         """
-        Genera una tarea en el programador de tareas del sistema.
+        Enhanced version of generate_system_task with better path handling.
         
         Args:
-            task_name (str): Nombre de la tarea
-            interval_minutes (int): Intervalo en minutos
+            task_name (str): Name of the task/service
+            interval_minutes (int): Interval in minutes
             
         Returns:
-            bool: True si se generó correctamente
+            bool: True if task was created successfully
         """
         if not task_name or interval_minutes <= 0:
-            logger.error(f"Parámetros inválidos para tarea: {task_name}, intervalo: {interval_minutes}")
+            logger.error(f"Invalid parameters for task: {task_name}, interval: {interval_minutes}")
             return False
             
+        # Get application directory
+        app_dir = self.get_application_path()
+        
+        # Get paths for data and logs
+        data_dir = os.path.join(app_dir, 'data')
+        logs_dir = os.path.join(app_dir, 'logs')
+        
+        # Get monitor script path
         monitor_script = self.get_monitor_script_path()
         
         if not os.path.exists(monitor_script):
-            logger.error(f"Script de monitoreo no encontrado: {monitor_script}")
+            logger.error(f"Monitor script not found: {monitor_script}")
             return False
         
         try:
-            # Comando Python para ejecutar el script de monitoreo
+            # Python command to execute the monitoring script
             python_cmd = sys.executable
             
-            # Verificar si estamos en modo compilado
+            # Check if we're in compiled mode
             is_compiled = getattr(sys, 'frozen', False)
             
-            # Determinar sistema operativo
+            # Determine operating system
             if sys.platform.startswith('win'):
-                # 1. Crear script batch temporal para ejecutar el comando
+                # 1. Create temporary batch directory
                 batch_dir = os.path.join(os.environ['TEMP'], 'SOAPMonitor')
                 os.makedirs(batch_dir, exist_ok=True)
                 batch_file = os.path.join(batch_dir, f'run_{task_name}.bat')
                 
-                # 2. Escribir el comando en un archivo .bat
-                with open(batch_file, 'w') as f:
-                    f.write(f'@echo off\n')
-                    
-                    if is_compiled:
-                        # Si es una aplicación compilada, llamar directamente al .exe con argumentos
-                        f.write(f'"{monitor_script}" {task_name}\n')
-                    else:
-                        # Si es un script, usar python para ejecutarlo
-                        f.write(f'"{python_cmd}" "{monitor_script}" {task_name}\n')
+                # 2. Write improved batch script
+                batch_content = self.generate_batch_script_improved(
+                    task_name, app_dir, python_cmd, monitor_script, data_dir, logs_dir
+                )
                 
-                # 3. Crear la tarea usando el archivo .bat
+                with open(batch_file, 'w') as f:
+                    f.write(batch_content)
+                
+                # 3. Create the task using the batch file
                 task_cmd = f'schtasks /create /tn "SOAPMonitor_{task_name}" /tr "{batch_file}" /sc minute /mo {interval_minutes} /f'
                 subprocess.run(task_cmd, shell=True, check=True)
-                logger.info(f"Tarea de sistema creada en Windows para {task_name} usando script: {batch_file}")
+                logger.info(f"System task created in Windows for {task_name} using script: {batch_file}")
                 
                 return True
             else:
-                # Linux/Unix - usar crontab
-                if is_compiled:
-                    # Si es una aplicación compilada, llamar directamente al .exe con argumentos
-                    cmd = f'"{monitor_script}" {task_name}'
-                else:
-                    # Si es un script, usar python para ejecutarlo
-                    cmd = f'"{python_cmd}" "{monitor_script}" {task_name}'
+                # Linux/Unix - use crontab with improved script
+                script_dir = os.path.join(app_dir, 'scripts')
+                os.makedirs(script_dir, exist_ok=True)
+                script_file = os.path.join(script_dir, f'monitor_{task_name}.sh')
                 
-                cron_schedule = f"*/{interval_minutes} * * * * {cmd}"
+                # Create the shell script
+                script_content = self.generate_shell_script_improved(
+                    task_name, app_dir, python_cmd, monitor_script, data_dir, logs_dir
+                )
                 
-                # Obtener crontab actual
+                with open(script_file, 'w') as f:
+                    f.write(script_content)
+                
+                # Make script executable
+                os.chmod(script_file, 0o755)
+                
+                # Create crontab entry
+                cron_schedule = f"*/{interval_minutes} * * * * {script_file}"
+                
+                # Get current crontab
                 current_crontab = subprocess.check_output("crontab -l 2>/dev/null || echo ''", shell=True, text=True)
                 
-                # Buscar y reemplazar tarea existente o agregar nueva
+                # Find and replace task or add new
                 task_marker = f"# SOAPMonitor_{task_name}"
                 
                 if task_marker in current_crontab:
-                    # Actualizar tarea existente
+                    # Update existing task
                     lines = current_crontab.splitlines()
                     new_lines = []
                     
@@ -309,27 +336,27 @@ class SOAPMonitorScheduler:
                         if lines[i] == task_marker:
                             new_lines.append(task_marker)
                             new_lines.append(cron_schedule)
-                            i += 2  # Saltar la línea anterior
+                            i += 2  # Skip the old command line
                         else:
                             new_lines.append(lines[i])
                         i += 1
                     
                     new_crontab = "\n".join(new_lines)
                 else:
-                    # Agregar nueva tarea
+                    # Add new task
                     new_crontab = current_crontab.strip() + f"\n\n{task_marker}\n{cron_schedule}\n"
                 
-                # Guardar nueva crontab
+                # Save new crontab
                 subprocess.run("crontab -", shell=True, input=new_crontab, text=True, check=True)
-                logger.info(f"Tarea de sistema creada en Linux/Unix para {task_name}")
+                logger.info(f"System task created in Linux/Unix for {task_name} using script: {script_file}")
             
             return True
             
         except subprocess.CalledProcessError as e:
-            logger.error(f"Error al crear tarea de sistema para {task_name}: {str(e)}")
+            logger.error(f"Error creating system task for {task_name}: {str(e)}")
             return False
         except Exception as e:
-            logger.error(f"Error inesperado al crear tarea de sistema: {str(e)}")
+            logger.error(f"Unexpected error creating system task: {str(e)}")
             return False
     
     def remove_system_task(self, task_name: str) -> bool:
@@ -537,6 +564,88 @@ class SOAPMonitorScheduler:
     """
         return xml_content
 
+    def generate_batch_script_improved(service_name, app_dir, python_path, script_path, data_dir, logs_dir):
+        """
+        Generates an improved batch script for Windows task scheduling with better path handling.
+        
+        Args:
+            service_name (str): Name of the service
+            app_dir (str): Application base directory
+            python_path (str): Path to Python executable
+            script_path (str): Path to the monitor script
+            data_dir (str): Path to data directory
+            logs_dir (str): Path to logs directory
+            
+        Returns:
+            str: Content of the batch script
+        """
+        batch_content = f"""@echo off
+    REM SOAP/REST Monitor - Scheduled task for service {service_name}
+    REM Generated by SOAP/REST Monitor Application
+
+    echo Starting monitoring check for service: {service_name}
+    echo Current time: %date% %time%
+    echo Working directory: {app_dir}
+
+    REM Change to application directory
+    cd /d "{app_dir}"
+
+    REM Run with explicit paths to ensure proper configuration loading
+    "{python_path}" "{script_path}" "{service_name}" --data-dir="{data_dir}" --logs-dir="{logs_dir}" --notify
+
+    REM Check exit code
+    if %errorlevel% neq 0 (
+        echo ERROR: Monitoring check failed with exit code %errorlevel%
+        echo Details available in log: {logs_dir}\\soap_monitor.log
+    ) else (
+        echo Monitoring check completed successfully
+    )
+
+    exit /b %errorlevel%
+    """
+        return batch_content
+
+    def generate_shell_script_improved(service_name, app_dir, python_path, script_path, data_dir, logs_dir):
+        """
+        Generates an improved shell script for Linux/Unix task scheduling.
+        
+        Args:
+            service_name (str): Name of the service
+            app_dir (str): Application base directory
+            python_path (str): Path to Python executable
+            script_path (str): Path to monitor script
+            data_dir (str): Path to data directory
+            logs_dir (str): Path to logs directory
+            
+        Returns:
+            str: Content of the shell script
+        """
+        shell_content = f"""#!/bin/bash
+    # SOAP/REST Monitor - Scheduled task for service {service_name}
+    # Generated by SOAP/REST Monitor Application
+
+    echo "Starting monitoring check for service: {service_name}"
+    echo "Current time: $(date)"
+    echo "Working directory: {app_dir}"
+
+    # Change to application directory
+    cd "{app_dir}"
+
+    # Run with explicit paths to ensure proper configuration loading
+    "{python_path}" "{script_path}" "{service_name}" --data-dir="{data_dir}" --logs-dir="{logs_dir}" --notify
+
+    # Check exit code
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Monitoring check failed"
+        echo "Details available in log: {logs_dir}/soap_monitor.log"
+        exit 1
+    else
+        echo "Monitoring check completed successfully"
+        exit 0
+    fi
+    """
+        return shell_content
+
     def generate_batch_script(service_name, xml_path):
         """
         Genera un script batch para registrar la tarea en Windows.
@@ -615,14 +724,14 @@ class SOAPMonitorScheduler:
             script_path = self.get_monitor_script_path()
             
             # Generar XML
-            xml_content = generate_task_xml(service_name, interval_minutes, python_path, script_path)
+            xml_content = self.generate_task_xml(service_name, interval_minutes, python_path, script_path)
             xml_path = os.path.join(service_dir, f"{service_name}_task.xml")
             
             with open(xml_path, 'w', encoding='utf-16') as f:
                 f.write(xml_content)
                 
             # Generar script batch
-            batch_content = generate_batch_script(service_name, xml_path)
+            batch_content = self.generate_batch_script(service_name, xml_path)
             batch_path = os.path.join(service_dir, f"Registrar_Tarea_{service_name}.bat")
             
             with open(batch_path, 'w', encoding='utf-8') as f:
