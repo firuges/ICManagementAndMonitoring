@@ -118,23 +118,16 @@ def setup_detailed_logging():
 
 def parse_arguments():
     """Parsea los argumentos de línea de comandos"""
-    parser = argparse.ArgumentParser(description='Monitor de Servicios SOAP')
+    parser = argparse.ArgumentParser(description='Monitor de servicios SOAP')
     
-    parser.add_argument('--headless', action='store_true', 
-                       help='Ejecutar en modo sin interfaz gráfica')
-    
-    parser.add_argument('--check', metavar='SERVICE_NAME', type=str,
-                       help='Verificar un servicio específico')
-    
-    parser.add_argument('--check-all', action='store_true',
-                       help='Verificar todos los servicios')
-    
-    # Añadir nuevo argumento aquí, dentro de la función
-    parser.add_argument('--no-admin-check', action='store_true', 
-                       help='Omitir la verificación de permisos de administrador')
-    
-    parser.add_argument('--notify', action='store_true',
-                       help='Forzar envío de notificaciones')
+    parser.add_argument('request_name', nargs='?', help='Nombre del request a verificar')
+    parser.add_argument('--notify', action='store_true', help='Forzar envío de notificaciones')
+    parser.add_argument('--data-dir', help='Directorio de datos de la aplicación')
+    parser.add_argument('--logs-dir', help='Directorio de logs de la aplicación')
+    parser.add_argument('--headless', action='store_true', help='Ejecutar en modo sin interfaz gráfica')
+    parser.add_argument('--check', metavar='SERVICE_NAME', type=str, help='Verificar un servicio específico')
+    parser.add_argument('--check-all', action='store_true', help='Verificar todos los servicios')
+    parser.add_argument('--no-admin-check', action='store_true', help='Omitir la verificación de permisos de administrador')
     
     return parser.parse_args()
 

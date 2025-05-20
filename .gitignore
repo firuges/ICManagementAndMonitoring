@@ -3,3 +3,6 @@ backup/
 *.bak
 data/
 logs/
+debug/
+core/app.log
+app.log

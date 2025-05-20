@@ -900,7 +900,8 @@ class MonitoringPanel(QWidget):
                 self._log_event(f"Servicio {service_name} habilitado para monitoreo", "info")
                 # Si también está configurado para sistema, actualizar
                 if service_data.get('add_to_system', False):
-                    if self.scheduler.generate_system_task(service_name, service_data.get('monitor_interval', 15)):
+                    interval = service_data.get('monitor_interval', 15)
+                    if self.scheduler.generate_system_task(service_name, interval):
                         self._log_event(f"Tarea del sistema actualizada para {service_name}", "info")
             else:
                 self._log_event(f"Servicio {service_name} deshabilitado para monitoreo", "info")
@@ -1051,13 +1052,13 @@ class MonitoringPanel(QWidget):
         
         # Primera fila: Grupo y Tipo
         html += "<p>"
-        html += f"<span class='label'>Grupo:</span>"
+        html += f"<span class='label'>Grupo: </span>"
         html += f"<span class='value'>{service_data.get('group', 'General')}</span>"
         html += "</p>"
         
         # Tipo de servicio con badge
         html += "<p>"
-        html += f"<span class='label'>Tipo:</span>"
+        html += f"<span class='label'>Tipo: </span>"
         if service_type == 'SOAP':
             html += f"<span class='value'><span class='badge badge-soap'>SOAP</span></span>"
         else:
@@ -1066,14 +1067,14 @@ class MonitoringPanel(QWidget):
         
         # Descripción
         html += "<p>"
-        html += f"<span class='label'>Descripción:</span>"
+        html += f"<span class='label'>Descripción: </span>"
         html += f"<span class='value'>{service_data.get('description', 'Sin descripción')}</span>"
         html += "</p>"
         
         # Estado de monitoreo
         monitor_enabled = service_data.get('monitor_enabled', True)
         html += "<p>"
-        html += f"<span class='label'>Monitoreo:</span>"
+        html += f"<span class='label'>Monitoreo: </span>"
         if monitor_enabled:
             html += f"<span class='value'><span class='badge monitoreo-on'>Habilitado</span></span>"
         else:
@@ -1089,18 +1090,18 @@ class MonitoringPanel(QWidget):
         if service_type == "SOAP":
             # URL WSDL
             html += "<p>"
-            html += f"<span class='label'>URL WSDL:</span>"
+            html += f"<span class='label'>URL WSDL: </span>"
             html += f"<span class='value'>{service_data.get('wsdl_url', 'No disponible')}</span>"
             html += "</p>"
         else:  # REST
             # URL y método
             html += "<p>"
-            html += f"<span class='label'>URL:</span>"
+            html += f"<span class='label'>URL: </span>"
             html += f"<span class='value'>{service_data.get('url', 'No disponible')}</span>"
             html += "</p>"
             
             html += "<p>"
-            html += f"<span class='label'>Método:</span>"
+            html += f"<span class='label'>Método: </span>"
             html += f"<span class='value'>{service_data.get('method', 'GET')}</span>"
             html += "</p>"
             
@@ -1140,7 +1141,7 @@ class MonitoringPanel(QWidget):
         }.get(status, 'unknown')
         
         html += "<p>"
-        html += f"<span class='label'>Estado:</span>"
+        html += f"<span class='label'>Estado: </span>"
         html += f"<span class='value {status_class}'>{status.upper()}</span>"
         html += "</p>"
         
@@ -1155,14 +1156,15 @@ class MonitoringPanel(QWidget):
                 pass
         
         html += "<p>"
-        html += f"<span class='label'>Última verificación:</span>"
+        html += f"<span class='label'>Última verificación: </span>"
         html += f"<span class='value'>{last_checked}</span>"
         html += "</p>"
         
         # Intervalo de monitoreo
+        interval = service_data.get('monitor_interval', 15)
         html += "<p>"
-        html += f"<span class='label'>Intervalo de monitoreo:</span>"
-        html += f"<span class='value'>{service_data.get('monitor_interval', 15)} minutos</span>"
+        html += f"<span class='label'>Intervalo de monitoreo: </span>"
+        html += f"<span class='value'>{interval} minutos</span>"
         html += "</p>"
         
         html += "</div>"
@@ -1174,7 +1176,7 @@ class MonitoringPanel(QWidget):
             
             if 'error' in service_data['last_response']:
                 html += "<p>"
-                html += f"<span class='label'>Error:</span>"
+                html += f"<span class='label'>Error: </span>"
                 html += f"<span class='value failed'>{service_data['last_response']['error']}</span>"
                 html += "</p>"
             
@@ -1186,8 +1188,8 @@ class MonitoringPanel(QWidget):
                 
             if 'validation_message' in service_data['last_response']:
                 html += "<p>"
-                html += f"<span class='label'>Mensaje:</span>"
-                html += f"<span class='value warning'>{service_data['last_response']['validation_message']}</span>"
+                html += f"<span class='label'>Mensaje: </span>"
+                html += f"<span class='value {status_class}'>{service_data['last_response']['validation_message']}</span>"
                 html += "</p>"
                 
             html += "</div>"
@@ -1416,7 +1418,7 @@ class MonitoringPanel(QWidget):
         if success:
             self._log_event(f"Servicio {service_name} verificado: {message}")
         else:
-            self._log_event(f"Error en servicio {service_name}: {message}", "error")
+            self._log_event(f"Check_Service - Error en servicio {service_name}: {message}", "error")
         
             # Enviar notificación si es un error
             try:
@@ -1984,7 +1986,7 @@ class ServiceCheckerThread(QThread):
             
             # Emitir progreso
             self.progress.emit(self.service_name, "Procesando respuesta...")
-            
+            print(f"  - Procesando respuesta: {result}")
             # Proceso de validación
             if not success:
                 # Guardar resultado de error

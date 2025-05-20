@@ -646,79 +646,102 @@ def improved_path_detection(args):
     
     return data_dir, logs_dir
 
+def parse_arguments():
+    """Parsea los argumentos de línea de comandos"""
+    parser = argparse.ArgumentParser(description='Monitor de servicios SOAP')
+    
+    parser.add_argument('request_name', nargs='?', help='Nombre del request a verificar')
+    parser.add_argument('--notify', action='store_true', help='Forzar envío de notificaciones')
+    parser.add_argument('--data-dir', help='Directorio de datos de la aplicación')
+    parser.add_argument('--logs-dir', help='Directorio de logs de la aplicación')
+    parser.add_argument('--headless', action='store_true', help='Ejecutar en modo sin interfaz gráfica')
+    parser.add_argument('--check', metavar='SERVICE_NAME', type=str, help='Verificar un servicio específico')
+    parser.add_argument('--check-all', action='store_true', help='Verificar todos los servicios')
+    parser.add_argument('--no-admin-check', action='store_true', help='Omitir la verificación de permisos de administrador')
+    
+    return parser.parse_args()
+
 def main():
     """Función principal"""
-    global logs_dir
+    global data_dir, logs_dir
+    
+    # 1. Parse arguments ONCE
+    args = parse_arguments()
+    
     try:
+        # 2. Detect paths based on arguments
+        custom_data_dir, custom_logs_dir = improved_path_detection(args)
+        
+        # 3. Use the detected paths
+        data_dir = custom_data_dir
+        logs_dir = custom_logs_dir
+        
+        # 4. Determine application path for logging
         if getattr(sys, 'frozen', False):
-                # Estamos en un entorno compilado (exe)
-                application_path = os.path.dirname(sys.executable)
-                current_dir = application_path
-                logger.info(f"Ejecutando como aplicación compilada: {application_path}")
+            application_path = os.path.dirname(sys.executable)
+            current_dir = application_path
+            logger.info(f"Ejecutando como aplicación compilada: {application_path}")
         else:
-            # Estamos ejecutando como script
             current_dir = os.path.dirname(os.path.abspath(__file__))
             logger.info(f"Ejecutando como script Python: {current_dir}")
     
-        # Subir un nivel si estamos en el directorio 'core'
+        # 5. Determine project root
         if os.path.basename(current_dir) == 'core':
             project_root = os.path.dirname(current_dir)
         else:
             project_root = current_dir
-            
+        
         logger.info(f"Directorio raíz del proyecto: {project_root}")
+        
     except Exception as e:
         logger.error(f"Error al detectar directorios: {str(e)}")
         # Fallback a directorio actual
         current_dir = os.getcwd()
         project_root = current_dir
         logger.info(f"Usando directorio actual como fallback: {project_root}")
-        
+    
+    # 6. Log information
     logger.info(f"Python path: {sys.executable}")
     logger.info(f"Argumentos: {sys.argv}")
-    
-    # Verificar acceso a directorios clave
-    data_dir = os.path.join(project_root, 'data')
-    logs_dir = os.path.join(project_root, 'logs')
-    logger.info(f"Directorio data existe: {os.path.exists(data_dir)}")
-    logger.info(f"Directorio logs existe: {os.path.exists(logs_dir)}")
-    # Crear directorio de logs si no existe
-    os.makedirs(data_dir, exist_ok=True)
-    os.makedirs(logs_dir, exist_ok=True)
-    
     logger.info(f"Directorio data: {data_dir} (existe: {os.path.exists(data_dir)})")
     logger.info(f"Directorio logs: {logs_dir} (existe: {os.path.exists(logs_dir)})")
     
-    # Configurar argumentos
-    parser = argparse.ArgumentParser(description='Monitor de servicios SOAP')
-    parser.add_argument('request_name', nargs='?', help='Nombre del request a verificar')
-    parser.add_argument('--notify', action='store_true', help='Forzar envío de notificaciones')
-    args = parser.parse_args()
+    # 7. Create directories if they don't exist
+    os.makedirs(data_dir, exist_ok=True)
+    os.makedirs(logs_dir, exist_ok=True)
     
-     # Inicializar componentes
+    # 8. Remove this second argument parsing - THIS IS THE MAIN ISSUE
+    # ----
+    # parser = argparse.ArgumentParser(description='Monitor de servicios SOAP')
+    # parser.add_argument('request_name', nargs='?', help='Nombre del request a verificar')
+    # parser.add_argument('--notify', action='store_true', help='Forzar envío de notificaciones')
+    # args = parser.parse_args()
+    # ----
+    
+    # 9. Initialize components and continue with the script
     persistence = PersistenceManager(base_path=data_dir)
     soap_client = SOAPClient()
     notifier = EmailNotifier()
     
-    # Lista para almacenar fallos
+    # List for failed requests
     failed_requests = []
     
     if args.request_name:
-        # Verificar un solo request
+        # Verify a single request
         logger.info(f"Verificando servicio específico: {args.request_name}")
         result = check_request(persistence, soap_client, args.request_name)
         
         if result['status'] != 'ok':
             failed_requests.append(result)
     else:
-        # Verificar todos los requests
+        # Verify all requests
         requests = persistence.list_all_requests()
         
         logger.info(f"Verificando {len(requests)} servicios")
         active_count = 0
         
         for request_data in requests:
-            # Solo verificar requests activos y monitoreo habilitado
+            # Only verify active requests with monitoring enabled
             if request_data.get('monitor_enabled', True):
                 active_count += 1
                 result = check_request(persistence, soap_client, request_data['name'])
@@ -728,14 +751,14 @@ def main():
         
         logger.info(f"Servicios activos verificados: {active_count}")
     
-    # Notificar fallos
+    # Notify failures
     if failed_requests or args.notify:
         logger.info(f"Enviando notificaciones para {len(failed_requests)} fallos")
         notify_failures(notifier, persistence, failed_requests)
     else:
         logger.info("Todos los servicios funcionan correctamente")
 
-    # Esperar si es necesario
+    # Wait if necessary
     if len(sys.argv) > 1 and '--wait' in sys.argv:
         print("\nPresiona Enter para cerrar...")
         input()
