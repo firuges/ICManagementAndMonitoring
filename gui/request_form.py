@@ -10,7 +10,8 @@ from PyQt5.QtWidgets import (
     QTextEdit, QPushButton, QComboBox, QSpinBox, QCheckBox, QGroupBox,
     QMessageBox, QSplitter, QListWidget, QListWidgetItem, QTabWidget,
     QTableWidgetItem, QHeaderView,QFileDialog, QDialog, QApplication,
-    QStackedWidget, QTableWidget, QTextBrowser,QMenu, QDialogButtonBox, QGridLayout
+    QStackedWidget, QTableWidget, QTextBrowser,QMenu, QDialogButtonBox, QGridLayout,
+    QFrame,QScrollArea, QSizePolicy
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QRegExp
 from PyQt5.QtGui import QRegExpValidator, QFont, QIcon
@@ -67,10 +68,12 @@ class RequestForm(QWidget):
         logger.info("Formulario de requests inicializado")
     
     def _create_ui(self):
-        """Crea la interfaz de usuario"""
-        main_layout = QHBoxLayout()
+        """Crea la interfaz de usuario con diseño responsivo"""
+        # Usar QVBoxLayout como contenedor principal para mejor control del espacio
+        main_layout = QVBoxLayout()
         self.setLayout(main_layout)
-        # Estilos CSS para mejorar la apariencia
+        
+        # Estilos CSS mejorados con ajustes para diferentes tamaños de pantalla
         style = """
             QGroupBox {
                 font-weight: bold;
@@ -78,6 +81,7 @@ class RequestForm(QWidget):
                 border-radius: 5px;
                 margin-top: 10px;
                 padding-top: 15px;
+                padding-bottom: 5px; /* Añadir padding inferior */
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
@@ -89,9 +93,9 @@ class RequestForm(QWidget):
                 background-color: #4a86e8;
                 color: white;
                 border: none;
-                padding: 6px 10px;
+                padding: 4px 8px; /* Reducido para pantallas pequeñas */
                 border-radius: 4px;
-                min-height: 25px;
+                min-height: 22px; /* Reducido para pantallas pequeñas */
             }
             QPushButton:hover {
                 background-color: #3a76d8;
@@ -110,7 +114,7 @@ class RequestForm(QWidget):
             }
             QHeaderView::section {
                 background-color: #f0f0f2;
-                padding: 5px;
+                padding: 3px; /* Reducido para pantallas pequeñas */
                 border: 1px solid #d0d0d0;
                 font-weight: bold;
             }
@@ -118,131 +122,183 @@ class RequestForm(QWidget):
                 border: 1px solid #cccccc;
                 border-radius: 3px;
                 background-color: white;
-                padding: 4px;
+                padding: 3px; /* Reducido para pantallas pequeñas */
             }
             QComboBox {
-                padding: 5px;
+                padding: 3px; /* Reducido para pantallas pequeñas */
                 border: 1px solid #cccccc;
                 border-radius: 3px;
-                min-height: 25px;
+                min-height: 22px; /* Reducido para pantallas pequeñas */
             }
             QComboBox::drop-down {
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
-                width: 20px;
+                width: 18px; /* Reducido para pantallas pequeñas */
                 border-left: 1px solid #cccccc;
             }
             QLineEdit, QSpinBox {
                 border: 1px solid #cccccc;
                 border-radius: 3px;
-                padding: 4px;
-                min-height: 20px;
+                padding: 3px; /* Reducido para pantallas pequeñas */
+                min-height: 18px; /* Reducido para pantallas pequeñas */
+            }
+            /* Ajustes específicos para ScrollArea */
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            /* Ajustes para etiquetas */
+            QLabel {
+                margin-bottom: 2px;
+            }
+            /* Ajuste de tamaño de fuente según pantalla */
+            @media (max-width: 1366px) {
+                * { font-size: 9pt; }
+            }
+            @media (min-width: 1367px) and (max-width: 1920px) {
+                * { font-size: 10pt; }
+            }
+            @media (min-width: 1921px) {
+                * { font-size: 11pt; }
             }
         """
         self.setStyleSheet(style)
         
-        # Sección izquierda (lista de requests)
-        left_panel = QWidget()
-        left_layout = QVBoxLayout()
-        left_panel.setLayout(left_layout)
+        # Crear un QScrollArea principal para permitir desplazamiento en pantallas pequeñas
+        main_scroll_area = QScrollArea()
+        main_scroll_area.setWidgetResizable(True)
+        main_scroll_area.setFrameShape(QFrame.NoFrame)
+        main_layout.addWidget(main_scroll_area)
         
-        # Lista de requests
+        # Contenedor principal dentro del área de desplazamiento
+        main_container = QWidget()
+        main_container_layout = QVBoxLayout(main_container)
+        main_container_layout.setContentsMargins(2, 2, 2, 2)  # Márgenes reducidos
+        main_scroll_area.setWidget(main_container)
+        
+        # Splitter principal (almacenado como atributo para poder ajustarlo dinámicamente)
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        main_container_layout.addWidget(self.main_splitter)
+        
+        # ----- PANEL IZQUIERDO (LISTA DE SERVICIOS) -----
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(2, 2, 2, 2)  # Márgenes reducidos
+        
+        # Título y lista de servicios
+        services_title = QLabel("Servicios:")
+        left_layout.addWidget(services_title)
+        
         self.requests_list = QListWidget()
+        self.requests_list.setMinimumWidth(150)  # Ancho mínimo para asegurar usabilidad
         self.requests_list.currentItemChanged.connect(self._on_request_selected)
-        left_layout.addWidget(QLabel("Servicios:"))  # Cambiado de "Requests SOAP" a "Servicios"
         left_layout.addWidget(self.requests_list)
         
-        # Botones de acción de lista
+        # Botones de acción compactos
         list_buttons_layout = QHBoxLayout()
+        list_buttons_layout.setSpacing(4)  # Espacio reducido entre botones
         
         self.btn_refresh_list = QPushButton("Actualizar")
         self.btn_refresh_list.clicked.connect(self._load_requests_list)
+        self.btn_refresh_list.setMaximumWidth(80)  # Ancho máximo para botones
         list_buttons_layout.addWidget(self.btn_refresh_list)
         
         self.btn_delete_request = QPushButton("Eliminar")
         self.btn_delete_request.clicked.connect(self._delete_request)
+        self.btn_delete_request.setMaximumWidth(80)  # Ancho máximo para botones
         list_buttons_layout.addWidget(self.btn_delete_request)
         
         left_layout.addLayout(list_buttons_layout)
         
-        # Sección derecha (formulario)
-        right_panel = QWidget()
-        form_layout = QVBoxLayout()  # Cambiado de QFormLayout a QVBoxLayout
-        right_panel.setLayout(form_layout)
+        # ----- PANEL DERECHO (FORMULARIO CON DESPLAZAMIENTO) -----
+        # ScrollArea para el panel derecho, permitiendo desplazamiento vertical
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QFrame.NoFrame)
         
-        # Contenedor para los campos básicos en dos columnas
+        right_panel = QWidget()
+        form_layout = QVBoxLayout(right_panel)
+        form_layout.setContentsMargins(2, 2, 2, 2)  # Márgenes reducidos
+        right_scroll.setWidget(right_panel)
+        
+        # ----- INFORMACIÓN BÁSICA DEL SERVICIO -----
         basic_info_group = QGroupBox("Información del Servicio")
-        basic_info_layout = QHBoxLayout()
+        # Usar QGridLayout para mejor control del espacio y más responsivo que QHBoxLayout
+        basic_info_layout = QGridLayout()
+        basic_info_layout.setVerticalSpacing(5)  # Espacio reducido entre filas
         basic_info_group.setLayout(basic_info_layout)
         
-        # Columna izquierda de información básica
-        left_column = QFormLayout()
-        left_column.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        
-        # Campos para la columna izquierda
+        # Primera fila: Nombre y Grupo
+        basic_info_layout.addWidget(QLabel("Nombre:"), 0, 0)
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Nombre descriptivo del servicio")
-        left_column.addRow("Nombre:", self.name_input)
+        basic_info_layout.addWidget(self.name_input, 0, 1)
         
+        basic_info_layout.addWidget(QLabel("Grupo:"), 0, 2)
+        self.group_input = QComboBox()
+        self.group_input.setEditable(True)
+        self.group_input.addItems(["General", "Financiero", "Clientes", "Productos", "Seguridad", "Monitoreo", "Soap Caja Social"])
+        basic_info_layout.addWidget(self.group_input, 0, 3)
+        
+        # Segunda fila: Descripción y Tipo
+        basic_info_layout.addWidget(QLabel("Descripción:"), 1, 0, Qt.AlignTop)  # Alinear arriba para multilinea
         self.description_input = QTextEdit()
         self.description_input.setMaximumHeight(60)
         self.description_input.setPlaceholderText("Descripción del propósito del servicio")
-        left_column.addRow("Descripción:", self.description_input)
+        basic_info_layout.addWidget(self.description_input, 1, 1)
         
-        # Columna derecha de información básica
-        right_column = QFormLayout()
-        right_column.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        
-        # Campos para la columna derecha
-        self.group_input = QComboBox()
-        self.group_input.setEditable(True)  # Permitir ingresar grupos personalizados
-        self.group_input.addItems(["General", "Financiero", "Clientes", "Productos", "Seguridad", "Monitoreo", "Soap Caja Social"])
-        right_column.addRow("Grupo:", self.group_input)
-        
-        # Tipo de servicio (SOAP/REST)
+        basic_info_layout.addWidget(QLabel("Tipo de servicio:"), 1, 2, Qt.AlignTop)
         self.service_type = QComboBox()
         self.service_type.addItems(["SOAP", "REST"])
         self.service_type.currentIndexChanged.connect(self._on_service_type_changed)
-        right_column.addRow("Tipo de servicio:", self.service_type)
+        basic_info_layout.addWidget(self.service_type, 1, 3, Qt.AlignTop)
         
-        # Añadir las columnas al layout principal
-        basic_info_layout.addLayout(left_column, 1)
-        basic_info_layout.addLayout(right_column, 1)
+        # Configurar proporciones de columnas
+        basic_info_layout.setColumnStretch(0, 0)  # Etiquetas sin expansión
+        basic_info_layout.setColumnStretch(1, 3)  # Campo principal con más espacio
+        basic_info_layout.setColumnStretch(2, 0)  # Etiquetas sin expansión
+        basic_info_layout.setColumnStretch(3, 2)  # Campo secundario con menos espacio que el principal
         
-        # Añadir el groupbox a la sección principal
         form_layout.addWidget(basic_info_group)
         
-        # Contenedor para campos específicos de cada tipo
+        # ----- CONTENEDORES ESPECÍFICOS PARA CADA TIPO (SOAP/REST) -----
         self.type_specific_container = QStackedWidget()
         
-        # ---------- CONTENEDOR PARA SOAP ----------
+        # ----- CONTENEDOR PARA SOAP -----
         self.soap_widget = QWidget()
-        soap_layout = QVBoxLayout()
-        self.soap_widget.setLayout(soap_layout)
+        soap_layout = QVBoxLayout(self.soap_widget)
+        soap_layout.setContentsMargins(2, 2, 2, 2)  # Márgenes reducidos
         
-        # URL del WSDL (solo para SOAP)
+        # URL del WSDL con layout compacto
+        wsdl_group = QGroupBox("Configuración SOAP")
+        wsdl_layout = QVBoxLayout()
+        wsdl_layout.setSpacing(4)  # Espacio reducido
+        wsdl_group.setLayout(wsdl_layout)
+        
+        wsdl_layout.addWidget(QLabel("URL WSDL:"))
         self.wsdl_url_input = QLineEdit()
         self.wsdl_url_input.setPlaceholderText("URL del WSDL del servicio (ej: http://ejemplo.com/servicio?wsdl)")
-        soap_layout.addWidget(QLabel("URL WSDL:"))
-        soap_layout.addWidget(self.wsdl_url_input)
+        wsdl_layout.addWidget(self.wsdl_url_input)
         
-        # Crear tabs para XML y validación SOAP
+        soap_layout.addWidget(wsdl_group)
+        
+        # Tabs para Request XML
         soap_tabs = QTabWidget()
         
         # Tab para Request XML
         xml_tab = QWidget()
-        xml_layout = QVBoxLayout()
-        xml_tab.setLayout(xml_layout)
+        xml_layout = QVBoxLayout(xml_tab)
+        xml_layout.setContentsMargins(4, 4, 4, 4)  # Márgenes reducidos
         
+        xml_layout.addWidget(QLabel("Request XML:"))
         self.request_xml_input = QTextEdit()
         self.request_xml_input.setPlaceholderText("<soap:Envelope>\n  <!-- Contenido del request SOAP -->\n</soap:Envelope>")
-        font = QFont("Courier New", 10)
-        self.request_xml_input.setFont(font)
-        xml_layout.addWidget(QLabel("Request XML:"))
+        self.request_xml_input.setFont(QFont("Courier New", 9))  # Fuente más pequeña
         xml_layout.addWidget(self.request_xml_input)
         
-        # Botones para XML
+        # Botones para XML en layout más compacto
         xml_buttons_layout = QHBoxLayout()
+        xml_buttons_layout.setSpacing(4)  # Espacio reducido entre botones
         
         self.btn_load_xml = QPushButton("Cargar desde archivo")
         self.btn_load_xml.clicked.connect(self._load_xml_from_file)
@@ -258,111 +314,96 @@ class RequestForm(QWidget):
         
         xml_layout.addLayout(xml_buttons_layout)
         
-        # Agregar tab de XML
         soap_tabs.addTab(xml_tab, "Request XML")
-        
-        # Añadir tabs a layout de SOAP
         soap_layout.addWidget(soap_tabs)
         
-        # ---------- CONTENEDOR PARA REST MEJORADO ----------
+        # ----- CONTENEDOR PARA REST -----
         self.rest_widget = QWidget()
-        rest_main_layout = QVBoxLayout()
-        self.rest_widget.setLayout(rest_main_layout)
+        rest_main_layout = QVBoxLayout(self.rest_widget)
+        rest_main_layout.setContentsMargins(2, 2, 2, 2)  # Márgenes reducidos
         
-        # Grupo de configuración REST con dos columnas
+        # Grupo de configuración REST con GridLayout más responsivo
         rest_config_group = QGroupBox("Configuración REST")
-        rest_config_layout = QHBoxLayout()
+        rest_config_layout = QGridLayout()
+        rest_config_layout.setVerticalSpacing(4)  # Espacio vertical reducido
         rest_config_group.setLayout(rest_config_layout)
         
-        # Columna izquierda para URL y método
-        rest_left_column = QFormLayout()
-        
-        # URL Base (para REST)
+        # URL y método en una misma fila de grid
+        rest_config_layout.addWidget(QLabel("URL:"), 0, 0)
         self.rest_url_input = QLineEdit()
         self.rest_url_input.setPlaceholderText("URL del endpoint (ej: https://api.ejemplo.com/v1/recurso)")
-        rest_left_column.addRow("URL:", self.rest_url_input)
+        rest_config_layout.addWidget(self.rest_url_input, 0, 1)
         
-        # Columna derecha para método HTTP
-        rest_right_column = QFormLayout()
-        
-        # Método HTTP
+        rest_config_layout.addWidget(QLabel("Método HTTP:"), 0, 2)
         self.rest_method = QComboBox()
         self.rest_method.addItems(["GET", "POST", "PUT", "DELETE", "PATCH"])
-        rest_right_column.addRow("Método HTTP:", self.rest_method)
+        self.rest_method.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)  # Evitar expansión innecesaria
+        rest_config_layout.addWidget(self.rest_method, 0, 3)
         
-        # Añadir columnas al grupo de configuración
-        rest_config_layout.addLayout(rest_left_column, 2)  # 2/3 del espacio para URL
-        rest_config_layout.addLayout(rest_right_column, 1)  # 1/3 del espacio para método
+        # Configurar proporciones de columnas
+        rest_config_layout.setColumnStretch(0, 0)  # Etiqueta URL sin expansión
+        rest_config_layout.setColumnStretch(1, 3)  # Campo URL con más espacio
+        rest_config_layout.setColumnStretch(2, 0)  # Etiqueta Método sin expansión
+        rest_config_layout.setColumnStretch(3, 1)  # Campo Método con menos espacio
         
-        # Añadir grupo de configuración al layout principal
         rest_main_layout.addWidget(rest_config_group)
         
-        # Sección mejorada de Headers y Parameters
-        headers_params_group = QGroupBox("Headers y Parameters")
-        headers_params_layout = QHBoxLayout()  # Cambiado a horizontal para mostrar en dos columnas
-        headers_params_group.setLayout(headers_params_layout)
-
-        # Panel de Headers con tabla
-        headers_container = QVBoxLayout()
-        headers_label = QLabel("<b>Headers</b>")
-        headers_container.addWidget(headers_label)
-
+        # Usar TabWidget para organizar Headers, Parameters y Body en pestañas
+        rest_tabs = QTabWidget()
+        
+        # Tab 1: Headers
+        headers_tab = QWidget()
+        headers_layout = QVBoxLayout(headers_tab)
+        headers_layout.setContentsMargins(4, 4, 4, 4)  # Márgenes reducidos
+        
         # Tabla para Headers
         self.headers_table = QTableWidget(0, 2)
         self.headers_table.setHorizontalHeaderLabels(["Nombre", "Valor"])
         self.headers_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.headers_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.headers_table.setMinimumHeight(120)
         self.headers_table.setAlternatingRowColors(True)
-        headers_container.addWidget(self.headers_table)
-
+        headers_layout.addWidget(self.headers_table)
+        
         # Botón para editar headers
         headers_btn_layout = QHBoxLayout()
         headers_btn_layout.addStretch()
         self.btn_edit_headers = QPushButton("Editar Headers")
         self.btn_edit_headers.clicked.connect(self._edit_headers_dialog)
-        self.btn_edit_headers.setMaximumWidth(120)
         headers_btn_layout.addWidget(self.btn_edit_headers)
-        headers_container.addLayout(headers_btn_layout)
-
-        # Panel de Query Parameters con tabla
-        params_container = QVBoxLayout()
-        params_label = QLabel("<b>Query Parameters</b>")
-        params_container.addWidget(params_label)
-
+        headers_layout.addLayout(headers_btn_layout)
+        
+        rest_tabs.addTab(headers_tab, "Headers")
+        
+        # Tab 2: Query Parameters
+        params_tab = QWidget()
+        params_layout = QVBoxLayout(params_tab)
+        params_layout.setContentsMargins(4, 4, 4, 4)  # Márgenes reducidos
+        
         # Tabla para Parameters
         self.params_table = QTableWidget(0, 2)
         self.params_table.setHorizontalHeaderLabels(["Nombre", "Valor"])
         self.params_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.params_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.params_table.setMinimumHeight(120)
         self.params_table.setAlternatingRowColors(True)
-        params_container.addWidget(self.params_table)
-
+        params_layout.addWidget(self.params_table)
+        
         # Botón para editar parámetros
         params_btn_layout = QHBoxLayout()
         params_btn_layout.addStretch()
         self.btn_edit_params = QPushButton("Editar Parámetros")
         self.btn_edit_params.clicked.connect(self._edit_params_dialog)
-        self.btn_edit_params.setMaximumWidth(120)
         params_btn_layout.addWidget(self.btn_edit_params)
-        params_container.addLayout(params_btn_layout)
-
-        # Añadir ambos contenedores al layout principal de Headers y Parameters
-        headers_params_layout.addLayout(headers_container)
-        headers_params_layout.addLayout(params_container)
-
-        # Añadir el grupo al layout principal de REST
-        rest_main_layout.addWidget(headers_params_group)
+        params_layout.addLayout(params_btn_layout)
         
-        # Sección de Body JSON
-        json_group = QGroupBox("Body JSON")
-        json_layout = QVBoxLayout()
-        json_group.setLayout(json_layout)
+        rest_tabs.addTab(params_tab, "Query Parameters")
+        
+        # Tab 3: Body JSON
+        json_tab = QWidget()
+        json_layout = QVBoxLayout(json_tab)
+        json_layout.setContentsMargins(4, 4, 4, 4)  # Márgenes reducidos
         
         self.json_preview = QTextBrowser()
-        self.json_preview.setFont(QFont("Courier New", 10))
-        self.json_preview.setMinimumHeight(150)
+        self.json_preview.setFont(QFont("Courier New", 9))  # Fuente más pequeña
         self.json_preview.setPlaceholderText("No hay JSON configurado")
         json_layout.addWidget(self.json_preview)
         
@@ -370,54 +411,55 @@ class RequestForm(QWidget):
         json_btn_layout.addStretch()
         self.btn_edit_json = QPushButton("Editar JSON")
         self.btn_edit_json.clicked.connect(self._edit_json_dialog)
-        self.btn_edit_json.setMaximumWidth(120)
         json_btn_layout.addWidget(self.btn_edit_json)
         json_layout.addLayout(json_btn_layout)
         
-        # Añadir grupo de JSON al layout principal
-        rest_main_layout.addWidget(json_group)
+        rest_tabs.addTab(json_tab, "Body JSON")
+        
+        rest_main_layout.addWidget(rest_tabs)
         
         # Botón para probar REST
         test_layout = QHBoxLayout()
         test_layout.addStretch()
         self.btn_test_rest = QPushButton("Probar REST")
         self.btn_test_rest.clicked.connect(self._test_rest_request)
-        self.btn_test_rest.setMinimumWidth(120)
         test_layout.addWidget(self.btn_test_rest)
-        
-        # Añadir botón de prueba al layout principal
         rest_main_layout.addLayout(test_layout)
         
-        # Añadir al contenedor de tipos específicos
+        # Añadir widgets al contenedor de tipos específicos
         self.type_specific_container.addWidget(self.soap_widget)
         self.type_specific_container.addWidget(self.rest_widget)
-        
-        # Añadir el contenedor al layout principal
         form_layout.addWidget(self.type_specific_container)
         
-        # Sección de validación en dos columnas
+        # ----- SECCIÓN DE VALIDACIÓN -----
         validation_group = QGroupBox("Validación de Respuestas")
-        validation_layout = QHBoxLayout()  # Cambiado a horizontal para las dos columnas
+        # Usar QSplitter para permitir ajuste de proporción
+        validation_splitter = QSplitter(Qt.Horizontal)
+        validation_layout = QVBoxLayout()
+        validation_layout.setContentsMargins(4, 4, 4, 4)  # Márgenes reducidos
         validation_group.setLayout(validation_layout)
-
-        # Columna izquierda: Editor de patrones
-        validation_left = QVBoxLayout()
-
+        validation_layout.addWidget(validation_splitter)
+        
+        # Panel izquierdo - Editor de patrones
+        validation_left_widget = QWidget()
+        validation_left = QVBoxLayout(validation_left_widget)
+        validation_left.setContentsMargins(2, 2, 2, 2)  # Márgenes reducidos
+        
         # Título y botón de ayuda
         header_layout = QHBoxLayout()
         header_layout.addWidget(QLabel("<b>Patrones de Validación:</b>"))
-
-        # Botón de ayuda
+        
+        # Botón de ayuda más pequeño
         help_btn = QPushButton("?")
         help_btn.setToolTip("Mostrar ayuda sobre patrones de validación")
-        help_btn.setMaximumWidth(25)
-        help_btn.setMaximumHeight(25)
+        help_btn.setMaximumSize(20, 20)  # Más pequeño
         help_btn.setStyleSheet("""
             QPushButton {
-                border-radius: 12px;
+                border-radius: 10px;
                 background-color: #4a86e8;
                 color: white;
                 font-weight: bold;
+                padding: 0px;
             }
             QPushButton:hover {
                 background-color: #3a76d8;
@@ -427,19 +469,20 @@ class RequestForm(QWidget):
         header_layout.addStretch()
         header_layout.addWidget(help_btn)
         validation_left.addLayout(header_layout)
-
+        
         # Editor de patrones
         self.validation_pattern_input = QTextEdit()
-        self.validation_pattern_input.setPlaceholderText('{\n  "success_field": "codMensaje",\n  "success_values": ["00000"],\n  "expected_fields": {\n    "campo1": "valor_esperado",\n    "campo2": null\n  }\n}')
-        self.validation_pattern_input.setFont(QFont("Courier New", 10))
+        self.validation_pattern_input.setPlaceholderText('{\n  "success_field": "codMensaje",\n  "success_values": ["00000"]\n}')
+        self.validation_pattern_input.setFont(QFont("Courier New", 9))  # Fuente más pequeña
         validation_left.addWidget(self.validation_pattern_input)
-
-        # Columna derecha: Ejemplos y opciones
-        validation_right = QVBoxLayout()
-
-        # Selector de ejemplos
+        
+        # Panel derecho - Ejemplos
+        validation_right_widget = QWidget()
+        validation_right = QVBoxLayout(validation_right_widget)
+        validation_right.setContentsMargins(2, 2, 2, 2)  # Márgenes reducidos
+        
         validation_right.addWidget(QLabel("<b>Ejemplos Predefinidos:</b>"))
-
+        
         templates_combo = QComboBox()
         templates_combo.addItems([
             "Seleccione un ejemplo...",
@@ -449,34 +492,31 @@ class RequestForm(QWidget):
             "Respuesta REST estándar"
         ])
         validation_right.addWidget(templates_combo)
-
+        
         # Botón de aplicar
         apply_btn_layout = QHBoxLayout()
         apply_btn_layout.addStretch()
         apply_template_btn = QPushButton("Aplicar Ejemplo")
         apply_template_btn.clicked.connect(lambda: self._apply_validation_template(templates_combo.currentText()))
-        apply_template_btn.setMaximumWidth(150)
         apply_btn_layout.addWidget(apply_template_btn)
         validation_right.addLayout(apply_btn_layout)
-
+        
         # Añadir espacio expandible al final
         validation_right.addStretch()
-
-        # Añadir ambas columnas al layout principal de validación
-        validation_layout.addLayout(validation_left, 2)  # Proporción 2 para el editor
-        validation_layout.addLayout(validation_right, 1)  # Proporción 1 para la explicación
-
-        # Añadir grupo de validación al layout principal
+        
+        # Añadir widgets al splitter
+        validation_splitter.addWidget(validation_left_widget)
+        validation_splitter.addWidget(validation_right_widget)
+        validation_splitter.setSizes([300, 150])  # Proporción inicial
+        
         form_layout.addWidget(validation_group)
         
-        # Opciones de monitoreo en diseño de grid más eficiente
+        # ----- OPCIONES DE MONITOREO -----
         monitoring_group = QGroupBox("Opciones de Monitoreo")
         monitoring_layout = QGridLayout()
+        monitoring_layout.setVerticalSpacing(6)  # Espacio vertical reducido
         monitoring_group.setLayout(monitoring_layout)
-
-        self._update_monitoring_group(monitoring_layout)
-        form_layout.addWidget(monitoring_group)
-
+        
         # Primera fila: Intervalo y verificación
         monitoring_layout.addWidget(QLabel("Intervalo (minutos):"), 0, 0)
         self.monitor_interval = QSpinBox()
@@ -484,65 +524,79 @@ class RequestForm(QWidget):
         self.monitor_interval.setMaximum(1440)
         self.monitor_interval.setValue(15)
         monitoring_layout.addWidget(self.monitor_interval, 0, 1)
-
+        
         # Botón de verificación a la derecha
         verify_task_btn = QPushButton("Verificar Estado")
         verify_task_btn.clicked.connect(lambda: self._check_task_status(self.name_input.text().strip()))
-        monitoring_layout.addWidget(verify_task_btn, 0, 2, 1, 2)  # Extender a 2 columnas
-
-        # Segunda fila: Opciones de timeout y reintentos
+        monitoring_layout.addWidget(verify_task_btn, 0, 2, 1, 2)
+        
+        # Segunda fila: Timeout y reintentos
         monitoring_layout.addWidget(QLabel("Timeout (seg):"), 1, 0)
         self.request_timeout = QSpinBox()
         self.request_timeout.setMinimum(5)
         self.request_timeout.setMaximum(300)
-        self.request_timeout.setValue(30)  # 30 segundos por defecto
-        self.request_timeout.setToolTip("Tiempo máximo de espera para la respuesta en segundos")
+        self.request_timeout.setValue(30)
         monitoring_layout.addWidget(self.request_timeout, 1, 1)
-
+        
         monitoring_layout.addWidget(QLabel("Reintentos:"), 1, 2)
         self.max_retries = QSpinBox()
         self.max_retries.setMinimum(0)
         self.max_retries.setMaximum(5)
-        self.max_retries.setValue(1)  # 1 reintento por defecto
-        self.max_retries.setToolTip("Número de reintentos si falla la conexión")
+        self.max_retries.setValue(1)
         monitoring_layout.addWidget(self.max_retries, 1, 3)
-
-        # Segunda fila: Checkboxes
+        
+        # Tercera fila: Checkboxes
         self.monitor_enabled = QCheckBox("Activar monitoreo automático")
         self.monitor_enabled.setChecked(True)
         monitoring_layout.addWidget(self.monitor_enabled, 2, 0, 1, 2)
-
+        
         self.add_to_system = QCheckBox("Añadir al programador de tareas del sistema")
         monitoring_layout.addWidget(self.add_to_system, 2, 2, 1, 2)
         
-        # Añadir grupo de monitoreo al layout principal
+        # Configurar proporciones de columnas para la rejilla
+        monitoring_layout.setColumnStretch(0, 1)
+        monitoring_layout.setColumnStretch(1, 1)
+        monitoring_layout.setColumnStretch(2, 1)
+        monitoring_layout.setColumnStretch(3, 1)
+        
         form_layout.addWidget(monitoring_group)
         
-        # Botones de acción
+        # ----- BOTONES DE ACCIÓN -----
         buttons_layout = QHBoxLayout()
         buttons_layout.addStretch()
         
         self.btn_clear = QPushButton("Limpiar")
         self.btn_clear.clicked.connect(self.clear_form)
-        self.btn_clear.setMinimumWidth(100)
+        self.btn_clear.setMinimumWidth(80)
         buttons_layout.addWidget(self.btn_clear)
         
         self.btn_save = QPushButton("Guardar")
         self.btn_save.clicked.connect(self._save_request)
         self.btn_save.setDefault(True)
-        self.btn_save.setMinimumWidth(100)
+        self.btn_save.setMinimumWidth(80)
         buttons_layout.addWidget(self.btn_save)
         
-        # Añadir botones al layout principal
         form_layout.addLayout(buttons_layout)
         
-        # Crear un splitter para poder redimensionar paneles
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(left_panel)
-        splitter.addWidget(right_panel)
-        splitter.setSizes([200, 700])  # Tamaños iniciales
+        # ----- AÑADIR PANELES AL SPLITTER PRINCIPAL -----
+        self.main_splitter.addWidget(left_panel)
+        self.main_splitter.addWidget(right_scroll)
         
-        main_layout.addWidget(splitter)
+        # Configurar proporciones iniciales para adaptarse al tamaño de pantalla
+        screen_size = QApplication.desktop().availableGeometry().size()
+        
+        if screen_size.width() >= 1920:  # Pantallas grandes (2K+)
+            # Más espacio para el panel derecho en pantallas grandes
+            self.main_splitter.setSizes([int(screen_size.width() * 0.2), int(screen_size.width() * 0.8)])
+        else:  # Pantallas más pequeñas
+            # Mayor proporción para el panel izquierdo en pantallas pequeñas
+            self.main_splitter.setSizes([int(screen_size.width() * 0.25), int(screen_size.width() * 0.75)])
+        
+        # Guardar referencia al splitter para poder ajustarlo dinámicamente
+        self.splitter = self.main_splitter
+        
+        # Añadir método de ajuste para eventos de redimensión
+        self.resizeEvent = self._on_resize_event
     
     def _show_validation_help(self):
         """Muestra ayuda sobre los patrones de validación en un diálogo modal"""
@@ -601,6 +655,22 @@ class RequestForm(QWidget):
         
         help_dialog.exec_()
     
+    def _on_resize_event(self, event):
+        """Maneja los eventos de redimensionamiento de la ventana"""
+        # Llamar al método original de redimensionamiento
+        super().resizeEvent(event)
+        
+        # Ajustar proporción del splitter según el ancho disponible
+        width = event.size().width()
+        
+        if width < 800:  # Pantallas muy pequeñas
+            # Dar menos espacio al panel izquierdo
+            self.main_splitter.setSizes([int(width * 0.3), int(width * 0.7)])
+        elif width < 1200:  # Pantallas medianas
+            self.main_splitter.setSizes([int(width * 0.25), int(width * 0.75)])
+        else:  # Pantallas grandes
+            self.main_splitter.setSizes([int(width * 0.2), int(width * 0.8)])
+
     # Añadir un nuevo método en request_form.py para verificar estado de tareas
     def _check_task_status(self, service_name: str) -> None:
         """Verifica y muestra el estado de la tarea programada en el sistema"""

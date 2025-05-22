@@ -6,3 +6,5 @@ logs/
 debug/
 core/app.log
 app.log
+build/
+dist/

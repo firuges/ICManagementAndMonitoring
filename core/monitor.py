@@ -661,10 +661,30 @@ def parse_arguments():
     
     return parser.parse_args()
 
+def verify_compiled_config():
+    """Verifica la configuración de la aplicación compilada"""
+    if getattr(sys, 'frozen', False):
+        logger.info("Ejecutando en modo compilado")
+        logger.info(f"Ejecutable: {sys.executable}")
+        logger.info(f"Directorio de trabajo: {os.getcwd()}")
+        logger.info(f"Argumentos: {sys.argv}")
+        
+        # Verificar directorios
+        app_dir = os.path.dirname(sys.executable)
+        data_dir = os.path.join(app_dir, 'data')
+        logs_dir = os.path.join(app_dir, 'logs')
+        
+        logger.info(f"Directorio de aplicación: {app_dir}")
+        logger.info(f"Directorio de datos: {data_dir} (existe: {os.path.exists(data_dir)})")
+        logger.info(f"Directorio de logs: {logs_dir} (existe: {os.path.exists(logs_dir)})")
+        
+        return True
+    return False
+
 def main():
     """Función principal"""
     global data_dir, logs_dir
-    
+    verify_compiled_config()
     # 1. Parse arguments ONCE
     args = parse_arguments()
     
