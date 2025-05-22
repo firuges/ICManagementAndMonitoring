@@ -112,9 +112,9 @@ class SOAPMonitorScheduler:
         try:
             # Determinar sistema operativo
             if sys.platform.startswith('win'):
-                # Windows - usar schtasks
+                # Windows - usar schtasks con ruta completa
                 result = subprocess.run(
-                    f'schtasks /query /tn "SOAPMonitor_{task_name}" /fo list',
+                    f'schtasks /query /tn "\\SoapRestMonitor\\{task_name}" /fo list',
                     shell=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -246,7 +246,7 @@ class SOAPMonitorScheduler:
     
     def generate_system_task(self, task_name: str, interval_minutes: int) -> bool:
         """
-        Enhanced version of generate_system_task with better path handling.
+        Enhanced version of generate_system_task with folder organization.
         
         Args:
             task_name (str): Name of the task/service
@@ -258,7 +258,7 @@ class SOAPMonitorScheduler:
         if not task_name or interval_minutes <= 0:
             logger.error(f"Invalid parameters for task: {task_name}, interval: {interval_minutes}")
             return False
-            
+        
         # Get application directory
         app_dir = SOAPMonitorScheduler.get_application_path()
         
@@ -295,10 +295,22 @@ class SOAPMonitorScheduler:
                 with open(batch_file, 'w') as f:
                     f.write(batch_content)
                 
-                # 3. Create the task using the batch file
-                task_cmd = f'schtasks /create /tn "SOAPMonitor_{task_name}" /tr "{batch_file}" /sc minute /mo {interval_minutes} /f'
+                # 3. Create the folder in Task Scheduler if it doesn't exist
+                folder_creation_cmd = f'schtasks /create /tn "\\SoapRestMonitor" /f /sc once /st 00:00 /sd 01/01/2099'
+                try:
+                    # This will create the folder. We use a dummy task that won't actually run
+                    subprocess.run(folder_creation_cmd, shell=True, check=False, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+                    # Now delete the dummy task, leaving just the folder
+                    subprocess.run('schtasks /delete /tn "\\SoapRestMonitor" /f', shell=True, check=False, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+                    logger.info("Created SoapRestMonitor folder in Task Scheduler")
+                except subprocess.CalledProcessError:
+                    # If this fails, it might be because the folder already exists
+                    logger.warning("Could not create SoapRestMonitor folder - it may already exist")
+                
+                # 4. Create the task using the batch file with full folder path
+                task_cmd = f'schtasks /create /tn "\\SoapRestMonitor\\{task_name}" /tr "{batch_file}" /sc minute /mo {interval_minutes} /f'
                 subprocess.run(task_cmd, shell=True, check=True)
-                logger.info(f"System task created in Windows for {task_name} using script: {batch_file}")
+                logger.info(f"System task created in Windows for {task_name} in SoapRestMonitor folder using script: {batch_file}")
                 
                 return True
             else:
@@ -373,8 +385,8 @@ class SOAPMonitorScheduler:
         try:
             # Determinar sistema operativo
             if sys.platform.startswith('win'):
-                # Windows - usar schtasks
-                task_cmd = f'schtasks /delete /tn "SOAPMonitor_{task_name}" /f'
+                # Windows - usar schtasks con ruta completa que incluye la carpeta
+                task_cmd = f'schtasks /delete /tn "\\SoapRestMonitor\\{task_name}" /f'
                 subprocess.run(task_cmd, shell=True, check=True)
                 logger.info(f"Tarea de sistema eliminada en Windows para {task_name}")
             else:
@@ -448,13 +460,15 @@ class SOAPMonitorScheduler:
             if sys.platform.startswith('win'):
                 # Windows - usar schtasks para obtener más información
                 result = subprocess.run(
-                    f'schtasks /query /tn "SOAPMonitor_{task_name}" /fo list',
+                    f'schtasks /query /tn "\\SoapRestMonitor\\{task_name}" /fo list',
                     shell=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True
                 )
+                
                 if result.returncode == 0:
+                    status["exists"] = True
                     # Extraer intervalo
                     for line in result.stdout.splitlines():
                         if "ScheduleType:" in line:
@@ -517,7 +531,7 @@ class SOAPMonitorScheduler:
         <Date>{datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}</Date>
         <Author>SOAP Monitor Application</Author>
         <Description>Monitoreo automático del servicio: {service_name}</Description>
-        <URI>\\SOAPMonitor\\{service_name}</URI>
+        <URI>\\SoapRestMonitor\\{service_name}</URI>
     </RegistrationInfo>
     <Triggers>
         <TimeTrigger>
@@ -548,7 +562,7 @@ class SOAPMonitorScheduler:
         </IdleSettings>
         <AllowStartOnDemand>true</AllowStartOnDemand>
         <Enabled>true</Enabled>
-        <Hidden>false</Hidden>
+        <Hidden>true</Hidden>
         <RunOnlyIfIdle>false</RunOnlyIfIdle>
         <WakeToRun>false</WakeToRun>
         <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
@@ -557,7 +571,7 @@ class SOAPMonitorScheduler:
     <Actions Context="Author">
         <Exec>
         <Command>"{python_path}"</Command>
-        <Arguments>"{script_path}" "{service_name}"</Arguments>
+        <Arguments>"{script_path}" "{service_name}" --headless --scheduled-task --notify</Arguments>
         <WorkingDirectory>{os.path.dirname(script_path)}</WorkingDirectory>
         </Exec>
     </Actions>
@@ -565,7 +579,7 @@ class SOAPMonitorScheduler:
     """
         return xml_content
 
-    def generate_batch_script_improved(self,service_name, app_dir, python_path, script_path, data_dir, logs_dir):
+    def generate_batch_script_improved(self, service_name, app_dir, python_path, script_path, data_dir, logs_dir):
         """
         Generates an improved batch script for Windows task scheduling with better path handling.
         
@@ -580,38 +594,67 @@ class SOAPMonitorScheduler:
         Returns:
             str: Content of the batch script
         """
-        if getattr(sys, 'frozen', False):
-            command_line = f'"{python_path}" "{service_name}" --notify --data-dir "{data_dir}" --logs-dir "{logs_dir}"'
+        # Determinar si estamos en modo compilado
+        is_compiled = getattr(sys, 'frozen', False)
+        
+        if is_compiled:
+            # Para aplicación compilada (.exe)
+            # El python_path es realmente el .exe de la aplicación
+            command_line = f'"{python_path}" "{service_name}" --headless --scheduled-task --notify --data-dir "{data_dir}" --logs-dir "{logs_dir}"'
+            script_description = "aplicación compilada"
         else:
-            command_line = f'"{python_path}" "{script_path}" "{service_name}" --notify --data-dir "{data_dir}" --logs-dir "{logs_dir}"'
+            # Para script Python
+            command_line = f'"{python_path}" "{script_path}" "{service_name}" --headless --scheduled-task --notify --data-dir "{data_dir}" --logs-dir "{logs_dir}"'
+            script_description = "script Python"
         
         batch_content = f"""@echo off
-        REM SOAP/REST Monitor - Scheduled task for service {service_name}
-        REM Generated by SOAP/REST Monitor Application
+    REM SOAP/REST Monitor - Scheduled task for service {service_name}
+    REM Generated by SOAP/REST Monitor Application
+    REM Execution mode: {script_description}
 
-        echo Starting monitoring check for service: {service_name}
-        echo Current time: %date% %time%
-        echo Working directory: {app_dir}
+    echo ============================================
+    echo SOAP/REST Monitor - Task Execution
+    echo ============================================
+    echo Service: {service_name}
+    echo Start time: %date% %time%
+    echo Working directory: {app_dir}
+    echo Execution mode: {script_description}
+    echo ============================================
 
-        REM Change to application directory
-        cd /d "{app_dir}"
+    REM Change to application directory
+    cd /d "{app_dir}"
 
-        REM Run with explicit paths
-        {command_line}
+    REM Verify working directory
+    echo Current directory: %cd%
 
-        REM Check exit code
-        if %errorlevel% neq 0 (
-            echo ERROR: Monitoring check failed with exit code %errorlevel%
-            echo Details available in log: {logs_dir}\\soap_monitor.log
-        ) else (
-            echo Monitoring check completed successfully
-        )
+    REM Execute command with full logging
+    echo Executing command: {command_line}
+    echo.
 
-        exit /b %errorlevel%
-        """
+    {command_line}
+
+    REM Capture exit code
+    set EXIT_CODE=%errorlevel%
+
+    echo.
+    echo ============================================
+    echo Task completed at: %date% %time%
+    echo Exit code: %EXIT_CODE%
+
+    if %EXIT_CODE% neq 0 (
+        echo ERROR: Monitoring check failed
+        echo Check logs at: {logs_dir}\\soap_monitor.log
+        echo ============================================
+        exit /b %EXIT_CODE%
+    ) else (
+        echo SUCCESS: Monitoring check completed
+        echo ============================================
+        exit /b 0
+    )
+    """
         return batch_content
 
-    def generate_shell_script_improved(service_name, app_dir, python_path, script_path, data_dir, logs_dir):
+    def generate_shell_script_improved(self, service_name, app_dir, python_path, script_path, data_dir, logs_dir):
         """
         Generates an improved shell script for Linux/Unix task scheduling.
         
@@ -626,27 +669,58 @@ class SOAPMonitorScheduler:
         Returns:
             str: Content of the shell script
         """
+        # Determinar modo de ejecución
+        is_compiled = getattr(sys, 'frozen', False)
+        
+        if is_compiled:
+            command_line = f'"{python_path}" "{service_name}" --headless --scheduled-task --notify --data-dir="{data_dir}" --logs-dir="{logs_dir}"'
+            script_description = "compiled application"
+        else:
+            command_line = f'"{python_path}" "{script_path}" "{service_name}" --headless --scheduled-task --notify --data-dir="{data_dir}" --logs-dir="{logs_dir}"'
+            script_description = "Python script"
+        
         shell_content = f"""#!/bin/bash
     # SOAP/REST Monitor - Scheduled task for service {service_name}
     # Generated by SOAP/REST Monitor Application
+    # Execution mode: {script_description}
 
-    echo "Starting monitoring check for service: {service_name}"
-    echo "Current time: $(date)"
+    echo "============================================"
+    echo "SOAP/REST Monitor - Task Execution"
+    echo "============================================"
+    echo "Service: {service_name}"
+    echo "Start time: $(date)"
     echo "Working directory: {app_dir}"
+    echo "Execution mode: {script_description}"
+    echo "============================================"
 
     # Change to application directory
     cd "{app_dir}"
 
-    # Run with explicit paths to ensure proper configuration loading
-    "{python_path}" "{script_path}" "{service_name}" --data-dir="{data_dir}" --logs-dir="{logs_dir}" --notify
+    # Verify working directory
+    echo "Current directory: $(pwd)"
 
-    # Check exit code
-    if [ $? -ne 0 ]; then
+    # Execute command with logging
+    echo "Executing command: {command_line}"
+    echo ""
+
+    {command_line}
+
+    # Capture exit code
+    EXIT_CODE=$?
+
+    echo ""
+    echo "============================================"
+    echo "Task completed at: $(date)"
+    echo "Exit code: $EXIT_CODE"
+
+    if [ $EXIT_CODE -ne 0 ]; then
         echo "ERROR: Monitoring check failed"
-        echo "Details available in log: {logs_dir}/soap_monitor.log"
-        exit 1
+        echo "Check logs at: {logs_dir}/soap_monitor.log"
+        echo "============================================"
+        exit $EXIT_CODE
     else
-        echo "Monitoring check completed successfully"
+        echo "SUCCESS: Monitoring check completed"
+        echo "============================================"
         exit 0
     fi
     """
@@ -679,13 +753,17 @@ class SOAPMonitorScheduler:
         exit /b 1
     )
 
+    REM Crear carpeta SoapRestMonitor si no existe
+    schtasks /create /tn "\\SoapRestMonitor" /f /sc once /st 00:00 /sd 01/01/2099
+    schtasks /delete /tn "\\SoapRestMonitor" /f >nul 2>&1
+
     REM Registrar la tarea
-    schtasks /create /tn "SOAPMonitor_{service_name}" /xml "{xml_path}" /f
+    schtasks /create /tn "\\SoapRestMonitor\\{service_name}" /xml "{xml_path}" /f
 
     if %errorLevel% == 0 (
         echo.
         echo Tarea registrada correctamente.
-        echo Nombre de la tarea: SOAPMonitor_{service_name}
+        echo Nombre de la tarea: \\SoapRestMonitor\\{service_name}
         echo.
     ) else (
         echo.
@@ -889,7 +967,7 @@ class SOAPMonitorScheduler:
             if sys.platform.startswith('win'):
                 # Verificar en Windows Task Scheduler
                 result = subprocess.run(
-                    f'schtasks /query /tn "SOAPMonitor_{service_name}" /fo list',
+                    f'schtasks /query /tn "\\SoapRestMonitor\\{service_name}" /fo list',
                     shell=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,

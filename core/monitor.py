@@ -647,29 +647,108 @@ def improved_path_detection(args):
     return data_dir, logs_dir
 
 def parse_arguments():
-    """Parsea los argumentos de línea de comandos"""
+    """Parsea los argumentos de línea de comandos con manejo mejorado para .exe"""
     parser = argparse.ArgumentParser(description='Monitor de servicios SOAP')
     
-    parser.add_argument('request_name', nargs='?', help='Nombre del request a verificar')
-    parser.add_argument('--notify', action='store_true', help='Forzar envío de notificaciones')
+    # Hacer que request_name sea completamente opcional y flexible
+    parser.add_argument('request_name', nargs='?', default=None, 
+                       help='Nombre del request a verificar')
+    parser.add_argument('--notify', action='store_true', 
+                       help='Forzar envío de notificaciones')
     parser.add_argument('--data-dir', help='Directorio de datos de la aplicación')
     parser.add_argument('--logs-dir', help='Directorio de logs de la aplicación')
-    parser.add_argument('--headless', action='store_true', help='Ejecutar en modo sin interfaz gráfica')
-    parser.add_argument('--check', metavar='SERVICE_NAME', type=str, help='Verificar un servicio específico')
-    parser.add_argument('--check-all', action='store_true', help='Verificar todos los servicios')
-    parser.add_argument('--no-admin-check', action='store_true', help='Omitir la verificación de permisos de administrador')
+    parser.add_argument('--headless', action='store_true', 
+                       help='Ejecutar en modo sin interfaz gráfica')
+    parser.add_argument('--check', metavar='SERVICE_NAME', type=str, 
+                       help='Verificar un servicio específico')
+    parser.add_argument('--check-all', action='store_true', 
+                       help='Verificar todos los servicios')
+    parser.add_argument('--scheduled-task', action='store_true', 
+                       help='Indica que la ejecución proviene del programador de tareas')
+    parser.add_argument('--no-admin-check', action='store_true', 
+                       help='Omitir la verificación de permisos de administrador')
     
-    return parser.parse_args()
+    # Parsear argumentos con manejo de errores mejorado
+    try:
+        args = parser.parse_args()
+        
+        # Log de diagnóstico detallado
+        logger.info(f"Argumentos parseados exitosamente:")
+        logger.info(f"  - request_name: {args.request_name}")
+        logger.info(f"  - check: {args.check}")
+        logger.info(f"  - check_all: {args.check_all}")
+        logger.info(f"  - headless: {args.headless}")
+        logger.info(f"  - scheduled_task: {args.scheduled_task}")
+        logger.info(f"  - notify: {args.notify}")
+        logger.info(f"  - data_dir: {args.data_dir}")
+        logger.info(f"  - logs_dir: {args.logs_dir}")
+        
+        return args
+        
+    except SystemExit as e:
+        # argparse llama a sys.exit() en caso de error
+        logger.error(f"Error al parsear argumentos: {e}")
+        logger.error(f"Argumentos recibidos: {sys.argv}")
+        
+        # Para aplicaciones compiladas, intentar un parsing más permisivo
+        if getattr(sys, 'frozen', False) and len(sys.argv) > 1:
+            logger.info("Intentando parsing permisivo para aplicación compilada...")
+            
+            # Crear args por defecto
+            class Args:
+                def __init__(self):
+                    self.request_name = None
+                    self.check = None
+                    self.check_all = False
+                    self.headless = False
+                    self.scheduled_task = False
+                    self.notify = False
+                    self.data_dir = None
+                    self.logs_dir = None
+                    self.no_admin_check = False
+            
+            args = Args()
+            
+            # Procesar argumentos manualmente
+            for i, arg in enumerate(sys.argv[1:]):
+                if arg == '--check-all':
+                    args.check_all = True
+                    args.headless = True
+                elif arg.startswith('--check='):
+                    args.check = arg.split('=', 1)[1]
+                    args.headless = True
+                elif arg == '--headless':
+                    args.headless = True
+                elif arg == '--scheduled-task':
+                    args.scheduled_task = True
+                    args.headless = True
+                elif arg == '--notify':
+                    args.notify = True
+                elif arg.startswith('--data-dir='):
+                    args.data_dir = arg.split('=', 1)[1]
+                elif arg.startswith('--logs-dir='):
+                    args.logs_dir = arg.split('=', 1)[1]
+                elif not arg.startswith('-'):
+                    # Probablemente es un nombre de servicio
+                    args.request_name = arg
+                    args.headless = True
+            
+            logger.info(f"Parsing permisivo completado: request_name={args.request_name}")
+            return args
+        else:
+            # Re-lanzar la excepción si no podemos manejarla
+            raise
 
 def verify_compiled_config():
-    """Verifica la configuración de la aplicación compilada"""
+    """Verifica la configuración de la aplicación compilada con logging mejorado"""
     if getattr(sys, 'frozen', False):
-        logger.info("Ejecutando en modo compilado")
+        logger.info("=== APLICACIÓN COMPILADA DETECTADA ===")
         logger.info(f"Ejecutable: {sys.executable}")
-        logger.info(f"Directorio de trabajo: {os.getcwd()}")
-        logger.info(f"Argumentos: {sys.argv}")
+        logger.info(f"Directorio de trabajo actual: {os.getcwd()}")
+        logger.info(f"Argumentos completos: {sys.argv}")
+        logger.info(f"Número de argumentos: {len(sys.argv)}")
         
-        # Verificar directorios
+        # Verificar directorios importantes
         app_dir = os.path.dirname(sys.executable)
         data_dir = os.path.join(app_dir, 'data')
         logs_dir = os.path.join(app_dir, 'logs')
@@ -678,15 +757,38 @@ def verify_compiled_config():
         logger.info(f"Directorio de datos: {data_dir} (existe: {os.path.exists(data_dir)})")
         logger.info(f"Directorio de logs: {logs_dir} (existe: {os.path.exists(logs_dir)})")
         
+        # Verificar archivos críticos
+        critical_files = [
+            os.path.join(data_dir, 'requests'),
+            os.path.join(data_dir, 'smtp_config.json'),
+            os.path.join(data_dir, 'email_config.json')
+        ]
+        
+        for file_path in critical_files:
+            exists = os.path.exists(file_path)
+            logger.info(f"Archivo crítico '{file_path}': {'EXISTE' if exists else 'NO EXISTE'}")
+        
+        logger.info("=== FIN VERIFICACIÓN COMPILADA ===")
         return True
-    return False
+    else:
+        logger.info("Ejecutando como script Python estándar")
+        return False
 
 def main():
-    """Función principal"""
+    """Función principal mejorada con mejor manejo de argumentos"""
     global data_dir, logs_dir
+    
+    # Verificar configuración compilada
     verify_compiled_config()
-    # 1. Parse arguments ONCE
-    args = parse_arguments()
+    
+    try:
+        # 1. Parse arguments con manejo mejorado de errores
+        args = parse_arguments()
+        
+    except Exception as parse_error:
+        logger.error(f"Error crítico al parsear argumentos: {str(parse_error)}")
+        logger.error(f"Argumentos sin procesar: {sys.argv}")
+        sys.exit(1)
     
     try:
         # 2. Detect paths based on arguments
@@ -696,92 +798,77 @@ def main():
         data_dir = custom_data_dir
         logs_dir = custom_logs_dir
         
-        # 4. Determine application path for logging
-        if getattr(sys, 'frozen', False):
-            application_path = os.path.dirname(sys.executable)
-            current_dir = application_path
-            logger.info(f"Ejecutando como aplicación compilada: {application_path}")
-        else:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            logger.info(f"Ejecutando como script Python: {current_dir}")
-    
-        # 5. Determine project root
-        if os.path.basename(current_dir) == 'core':
-            project_root = os.path.dirname(current_dir)
-        else:
-            project_root = current_dir
+        logger.info(f"Directorios configurados - Data: {data_dir}, Logs: {logs_dir}")
         
-        logger.info(f"Directorio raíz del proyecto: {project_root}")
+        # 4. Initialize components
+        persistence = PersistenceManager(base_path=data_dir)
+        soap_client = SOAPClient()
+        notifier = EmailNotifier()
         
+        # List for failed requests
+        failed_requests = []
+        
+        # 5. Determine what to check
+        service_to_check = None
+        
+        if args.check:
+            service_to_check = args.check
+        elif args.request_name:
+            service_to_check = args.request_name
+        
+        if service_to_check:
+            # Verify a single service
+            logger.info(f"Verificando servicio específico: {service_to_check}")
+            result = check_request(persistence, soap_client, service_to_check)
+            
+            if result['status'] != 'ok':
+                failed_requests.append(result)
+                logger.error(f"Error en servicio {service_to_check}: {result.get('error', 'Error desconocido')}")
+            else:
+                logger.info(f"Servicio {service_to_check} verificado correctamente")
+        
+        elif args.check_all:
+            # Verify all services
+            requests = persistence.list_all_requests()
+            
+            logger.info(f"Verificando {len(requests)} servicios")
+            active_count = 0
+            
+            for request_data in requests:
+                # Only verify active requests with monitoring enabled
+                if request_data.get('monitor_enabled', True):
+                    active_count += 1
+                    result = check_request(persistence, soap_client, request_data['name'])
+                    
+                    if result['status'] != 'ok':
+                        failed_requests.append(result)
+            
+            logger.info(f"Servicios activos verificados: {active_count}")
+        
+        else:
+            logger.warning("No se especificó ninguna acción de verificación")
+            logger.warning("Use --check <servicio>, --check-all, o proporcione un nombre de servicio")
+        
+        # 6. Notify failures if configured
+        should_notify = args.notify or args.scheduled_task or failed_requests
+        
+        if should_notify:
+            logger.info(f"Enviando notificaciones para {len(failed_requests)} fallos")
+            notify_failures(notifier, persistence, failed_requests)
+        else:
+            logger.info("No se requieren notificaciones")
+        
+        # 7. Set appropriate exit code
+        if failed_requests:
+            logger.error(f"Proceso completado con {len(failed_requests)} errores")
+            sys.exit(1)
+        else:
+            logger.info("Proceso completado exitosamente")
+            sys.exit(0)
+            
     except Exception as e:
-        logger.error(f"Error al detectar directorios: {str(e)}")
-        # Fallback a directorio actual
-        current_dir = os.getcwd()
-        project_root = current_dir
-        logger.info(f"Usando directorio actual como fallback: {project_root}")
-    
-    # 6. Log information
-    logger.info(f"Python path: {sys.executable}")
-    logger.info(f"Argumentos: {sys.argv}")
-    logger.info(f"Directorio data: {data_dir} (existe: {os.path.exists(data_dir)})")
-    logger.info(f"Directorio logs: {logs_dir} (existe: {os.path.exists(logs_dir)})")
-    
-    # 7. Create directories if they don't exist
-    os.makedirs(data_dir, exist_ok=True)
-    os.makedirs(logs_dir, exist_ok=True)
-    
-    # 8. Remove this second argument parsing - THIS IS THE MAIN ISSUE
-    # ----
-    # parser = argparse.ArgumentParser(description='Monitor de servicios SOAP')
-    # parser.add_argument('request_name', nargs='?', help='Nombre del request a verificar')
-    # parser.add_argument('--notify', action='store_true', help='Forzar envío de notificaciones')
-    # args = parser.parse_args()
-    # ----
-    
-    # 9. Initialize components and continue with the script
-    persistence = PersistenceManager(base_path=data_dir)
-    soap_client = SOAPClient()
-    notifier = EmailNotifier()
-    
-    # List for failed requests
-    failed_requests = []
-    
-    if args.request_name:
-        # Verify a single request
-        logger.info(f"Verificando servicio específico: {args.request_name}")
-        result = check_request(persistence, soap_client, args.request_name)
-        
-        if result['status'] != 'ok':
-            failed_requests.append(result)
-    else:
-        # Verify all requests
-        requests = persistence.list_all_requests()
-        
-        logger.info(f"Verificando {len(requests)} servicios")
-        active_count = 0
-        
-        for request_data in requests:
-            # Only verify active requests with monitoring enabled
-            if request_data.get('monitor_enabled', True):
-                active_count += 1
-                result = check_request(persistence, soap_client, request_data['name'])
-                
-                if result['status'] != 'ok':
-                    failed_requests.append(result)
-        
-        logger.info(f"Servicios activos verificados: {active_count}")
-    
-    # Notify failures
-    if failed_requests or args.notify:
-        logger.info(f"Enviando notificaciones para {len(failed_requests)} fallos")
-        notify_failures(notifier, persistence, failed_requests)
-    else:
-        logger.info("Todos los servicios funcionan correctamente")
-
-    # Wait if necessary
-    if len(sys.argv) > 1 and '--wait' in sys.argv:
-        print("\nPresiona Enter para cerrar...")
-        input()
+        logger.error(f"Error crítico en main(): {str(e)}", exc_info=True)
+        sys.exit(1)
         
 if __name__ == "__main__":
     main()

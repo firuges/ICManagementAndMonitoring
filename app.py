@@ -120,15 +120,23 @@ def parse_arguments():
     """Parsea los argumentos de línea de comandos"""
     parser = argparse.ArgumentParser(description='Monitor de servicios SOAP')
     
-    parser.add_argument('request_name', nargs='?', help='Nombre del request a verificar')
-    parser.add_argument('--notify', action='store_true', help='Forzar envío de notificaciones')
+    # Hacer que request_name sea completamente opcional
+    parser.add_argument('request_name', nargs='?', default=None, 
+                       help='Nombre del request a verificar')
+    parser.add_argument('--notify', action='store_true', 
+                       help='Forzar envío de notificaciones')
     parser.add_argument('--data-dir', help='Directorio de datos de la aplicación')
     parser.add_argument('--logs-dir', help='Directorio de logs de la aplicación')
-    parser.add_argument('--headless', action='store_true', help='Ejecutar en modo sin interfaz gráfica')
-    parser.add_argument('--check', metavar='SERVICE_NAME', type=str, help='Verificar un servicio específico')
-    parser.add_argument('--check-all', action='store_true', help='Verificar todos los servicios')
-    parser.add_argument('--no-admin-check', action='store_true', help='Omitir la verificación de permisos de administrador')
-    
+    parser.add_argument('--headless', action='store_true', 
+                       help='Ejecutar en modo sin interfaz gráfica')
+    parser.add_argument('--check', metavar='SERVICE_NAME', type=str, 
+                       help='Verificar un servicio específico')
+    parser.add_argument('--check-all', action='store_true', 
+                       help='Verificar todos los servicios')
+    parser.add_argument('--scheduled-task', action='store_true', 
+                       help='Indica que la ejecución proviene del programador de tareas')
+    parser.add_argument('--no-admin-check', action='store_true', 
+                       help='Omitir la verificación de permisos de administrador')
     return parser.parse_args()
 
 def run_headless(args, logger):
@@ -148,7 +156,7 @@ def run_headless(args, logger):
     soap_client = SOAPClient()
     notifier = EmailNotifier()
     
-     # Cargar configuración SMTP para notificaciones
+    # Cargar configuración SMTP para notificaciones
     try:
         smtp_config_path = os.path.join(data_dir, 'smtp_config.json')
         if os.path.exists(smtp_config_path):
@@ -162,25 +170,33 @@ def run_headless(args, logger):
     
     logger.info("Ejecutando en modo sin interfaz gráfica")
     
+    # Determinar qué servicio verificar
+    service_to_check = None
+    
     if args.check:
+        service_to_check = args.check
+    elif args.request_name:
+        service_to_check = args.request_name
+    
+    if service_to_check:
         # Verificar un servicio específico
         from core.monitor import check_request
         
-        logger.info(f"Verificando servicio: {args.check}")
-        result = check_request(persistence, soap_client, args.check)
+        logger.info(f"Verificando servicio: {service_to_check}")
+        result = check_request(persistence, soap_client, service_to_check)
         
         if result['status'] != 'ok':
-            logger.error(f"Error en servicio {args.check}: {result.get('error', 'Error desconocido')}")
+            logger.error(f"Error en servicio {service_to_check}: {result.get('error', 'Error desconocido')}")
             
             # Enviar notificación si se solicita
-            if args.notify:
+            if args.notify or getattr(args, 'scheduled_task', False):
                 logger.info("Enviando notificación por error detectado")
                 from core.monitor import notify_failures
                 notify_failures(notifier, persistence, [result])
                 
             sys.exit(1)
         else:
-            logger.info(f"Servicio {args.check} verificado correctamente")
+            logger.info(f"Servicio {service_to_check} verificado correctamente")
             sys.exit(0)
     
     elif args.check_all:
@@ -189,7 +205,7 @@ def run_headless(args, logger):
         
         logger.info("Verificando todos los servicios")
         # Modificar sys.argv para pasar --notify si es necesario
-        if args.notify:
+        if args.notify or getattr(args, 'scheduled_task', False):
             if '--notify' not in sys.argv:
                 sys.argv.append('--notify')
         
@@ -197,15 +213,12 @@ def run_headless(args, logger):
         sys.exit(0)
     
     else:
-        logger.error("Debe especificar una acción: --check o --check-all")
+        logger.error("Modo headless solicitado pero no se especificó una acción válida")
+        logger.error("Use --check <servicio>, --check-all, o proporcione un nombre de servicio")
         sys.exit(1)
 
-def run_gui():
-    """Ejecuta la aplicación con interfaz gráfica"""
-    # Crear aplicación Qt
-    app = QApplication(sys.argv)
-    app.setApplicationName("Monitor de Servicios SOAP")
-    
+def run_gui_with_app(app):
+    """Ejecuta la aplicación con interfaz gráfica usando la app ya creada"""
     # Importar módulos de la aplicación
     from gui.main_window import MainWindow
     
@@ -220,6 +233,14 @@ def run_gui():
     
     # Ejecutar bucle de eventos
     sys.exit(app.exec_())
+
+def run_gui():
+    """Ejecuta la aplicación con interfaz gráfica (versión legacy)"""
+    # Crear aplicación Qt
+    app = QApplication(sys.argv)
+    app.setApplicationName("Monitor de Servicios SOAP")
+    
+    run_gui_with_app(app)
 
 def main():
     """Función principal de la aplicación"""
@@ -238,25 +259,98 @@ def main():
     # Parsear argumentos
     args = parse_arguments()
     
+    logger.info(f"Argumentos recibidos: {sys.argv}")
+    logger.info(f"Args parseados: {args}")
+    logger.info(f"Headless: {args.headless}")
+    logger.info(f"Check: {args.check}")
+    logger.info(f"Check-all: {args.check_all}")
+    logger.info(f"Request name: {args.request_name}")
+    logger.info(f"Scheduled task: {getattr(args, 'scheduled_task', False)}")
+
     try:
-        if args.headless or args.check or args.check_all:
+        should_run_headless = determine_execution_mode(args)
+        
+        if should_run_headless:
+            logger.info("Ejecutando en modo headless")
             run_headless(args, logger)
         else:
-            # Verificar permisos antes de iniciar la GUI
+            logger.info("Ejecutando modo GUI")
+            
+            # Crear aplicación Qt primero
             app = QApplication(sys.argv)
             
-            # Mostrar diálogo de verificación de administrador
-            if not args.no_admin_check:
+            # Verificar si se debe mostrar el diálogo de administrador
+            from gui.admin_check_dialog import should_show_admin_dialog
+            
+            if not args.no_admin_check and should_show_admin_dialog():
                 from gui.admin_check_dialog import AdminCheckDialog
                 admin_dialog = AdminCheckDialog()
+                
+                # Si el usuario cancela o cierra el diálogo, salir
                 if admin_dialog.exec_() != QDialog.Accepted:
+                    logger.info("Usuario canceló la verificación de administrador")
                     sys.exit(0)
             
-            run_gui()
+            # Continuar con la GUI
+            run_gui_with_app(app)
+            
     except Exception as e:
         logger.error(f"Error en la aplicación: {str(e)}", exc_info=True)
         sys.exit(1)
+
+def determine_execution_mode(args) -> bool:
+    """
+    Determina si la aplicación debe ejecutarse en modo headless o GUI.
+    
+    Args:
+        args: Argumentos parseados de línea de comandos
         
+    Returns:
+        bool: True si debe ejecutarse en modo headless, False para GUI
+    """
+    logger = logging.getLogger('execution_mode')
+    
+    # Casos explícitos de modo headless
+    explicit_headless_flags = [
+        args.headless,
+        args.check is not None,
+        args.check_all,
+        getattr(args, 'scheduled_task', False)
+    ]
+    
+    # Si cualquier flag explícito de headless está presente
+    if any(explicit_headless_flags):
+        logger.info(f"Modo headless por flags explícitos: {explicit_headless_flags}")
+        return True
+    
+    # Si se proporciona un request_name sin otros flags, también es headless
+    if args.request_name and not any([args.headless, args.check, args.check_all]):
+        logger.info(f"Modo headless por request_name posicional: {args.request_name}")
+        return True
+    
+    # Verificar si hay argumentos que indiquen ejecución programada
+    # (esto es para casos donde el programador de tareas no pase --scheduled-task)
+    if len(sys.argv) > 1:
+        # Si el primer argumento parece ser un nombre de servicio (sin guiones)
+        first_arg = sys.argv[1]
+        if not first_arg.startswith('-') and first_arg not in ['--help', '-h']:
+            # Verificar si este argumento corresponde a un servicio existente
+            try:
+                from core.persistence import PersistenceManager
+                persistence = PersistenceManager(base_path=data_dir)
+                requests = persistence.list_all_requests()
+                service_names = [req.get('name', '') for req in requests]
+                
+                if first_arg in service_names:
+                    logger.info(f"Modo headless por nombre de servicio válido: {first_arg}")
+                    return True
+            except Exception as e:
+                logger.warning(f"No se pudo verificar servicios existentes: {str(e)}")
+    
+    # Por defecto, ejecutar en modo GUI
+    logger.info("Modo GUI por defecto")
+    return False
+
 # Añadir esto a app.py para diagnóstico de entorno
 def check_environment():
     """Verifica el entorno de ejecución para diagnóstico"""

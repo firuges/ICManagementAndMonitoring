@@ -1,6 +1,7 @@
 import sys
 import ctypes
 import logging
+import os
 from PyQt5.QtWidgets import (
     QVBoxLayout, QLabel, QPushButton, 
     QApplication, QDialog, QMessageBox
@@ -122,42 +123,63 @@ class AdminCheckDialog(QDialog):
         """Reinicia la aplicación con permisos de administrador (solo Windows)"""
         if sys.platform.startswith('win'):
             try:
+                # Obtener el ejecutable actual
+                if getattr(sys, 'frozen', False):
+                    # Estamos ejecutando desde .exe
+                    executable = sys.executable
+                    # Para .exe, no pasar argumentos de Python, solo argumentos de la aplicación
+                    app_args = ' '.join(sys.argv[1:]) if len(sys.argv) > 1 else ''
+                else:
+                    # Estamos ejecutando desde script Python
+                    executable = sys.executable
+                    # Incluir el script principal y sus argumentos
+                    app_args = ' '.join(sys.argv)
+                
+                logging.info(f"Reiniciando como admin: {executable} con argumentos: {app_args}")
+                
                 # Usar ShellExecute para reiniciar con UAC
-                ctypes.windll.shell32.ShellExecuteW(
-                    None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-                # Salir de la instancia actual
-                sys.exit(0)
-            except Exception as e:
-                logging.error(f"Error al reiniciar como administrador: {str(e)}")
-                QMessageBox.critical(self, "Error", 
-                    "No se pudo reiniciar la aplicación como administrador.\n\n"
-                    "Por favor, cierre la aplicación y ejecútela manualmente como administrador.")
-
-# Modificar en app.py, dentro de la función main():
-
-def main():
-    """Función principal de la aplicación"""
-    # Configurar logging
-    logger = setup_logging()
-    
-    # Parsear argumentos
-    args = parse_arguments()
-    
-    try:
-        # Determinar modo de ejecución
-        if args.headless or args.check or args.check_all:
-            run_headless(args, logger)
-        else:
-            # Verificar permisos antes de iniciar la GUI
-            app = QApplication(sys.argv)
-            
-            # Mostrar diálogo de verificación de administrador si no se especificó --no-admin-check
-            if not getattr(args, 'no_admin_check', False):
-                admin_dialog = AdminCheckDialog()
-                if admin_dialog.exec_() != QDialog.Accepted:
+                result = ctypes.windll.shell32.ShellExecuteW(
+                    None,           # hwnd
+                    "runas",        # lpVerb (ejecutar como admin)
+                    executable,     # lpFile (ejecutable)
+                    app_args,       # lpParameters (argumentos)
+                    None,           # lpDirectory
+                    1               # nShowCmd (SW_SHOWNORMAL)
+                )
+                
+                if result > 32:  # Éxito en ShellExecute
+                    # Salir de la instancia actual solo si el reinicio fue exitoso
+                    logging.info("Reinicio como administrador exitoso, cerrando instancia actual")
                     sys.exit(0)
-            
-            run_gui()
-    except Exception as e:
-        logger.error(f"Error en la aplicación: {str(e)}", exc_info=True)
-        sys.exit(1)
+                else:
+                    # Error en ShellExecute
+                    error_msg = f"Error al reiniciar como administrador. Código: {result}"
+                    logging.error(error_msg)
+                    QMessageBox.critical(self, "Error", error_msg)
+                    
+            except Exception as e:
+                logging.error(f"Error al reiniciar como administrador: {str(e)}", exc_info=True)
+                QMessageBox.critical(self, "Error", 
+                    f"No se pudo reiniciar la aplicación como administrador.\n\n"
+                    f"Error: {str(e)}\n\n"
+                    f"Por favor, cierre la aplicación y ejecútela manualmente como administrador.")
+
+def should_show_admin_dialog():
+    """
+    Determina si se debe mostrar el diálogo de verificación de administrador.
+    
+    Returns:
+        bool: True si se debe mostrar el diálogo
+    """
+    # No mostrar si se pasan argumentos de línea de comandos (modo headless)
+    if len(sys.argv) > 1:
+        # Verificar si hay argumentos que indiquen modo headless
+        headless_args = ['--headless', '--check', '--check-all', '--scheduled-task']
+        for arg in sys.argv[1:]:
+            if any(headless_arg in arg for headless_arg in headless_args):
+                return False
+            # Si el primer argumento no empieza con '-', podría ser un nombre de servicio
+            if not arg.startswith('-'):
+                return False
+    
+    return True
