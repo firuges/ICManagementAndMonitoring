@@ -11,9 +11,9 @@ from PyQt5.QtWidgets import (
     QMessageBox, QSplitter, QListWidget, QListWidgetItem, QTabWidget,
     QTableWidgetItem, QHeaderView,QFileDialog, QDialog, QApplication,
     QStackedWidget, QTableWidget, QTextBrowser,QMenu, QDialogButtonBox, QGridLayout,
-    QFrame,QScrollArea, QSizePolicy
+    QFrame,QScrollArea, QSizePolicy, QTimeEdit
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QRegExp
+from PyQt5.QtCore import Qt, pyqtSignal, QRegExp, QTime
 from PyQt5.QtGui import QRegExpValidator, QFont, QIcon
 
 # Importar módulos de la aplicación
@@ -34,11 +34,7 @@ class RequestForm(QWidget):
     
     def __init__(self, persistence: PersistenceManager, soap_client: SOAPClient):
         """
-        Inicializa el formulario de requests SOAP.
-        
-        Args:
-            persistence (PersistenceManager): Gestor de persistencia
-            soap_client (SOAPClient): Cliente SOAP
+        Inicializa el formulario de requests SOAP con configuración avanzada.
         """
         super().__init__()
         
@@ -65,7 +61,7 @@ class RequestForm(QWidget):
         # Cargar lista de requests existentes
         self._load_requests_list()
         
-        logger.info("Formulario de requests inicializado")
+        logger.info("Formulario de requests inicializado con configuración avanzada")
     
     def _create_ui(self):
         """Crea la interfaz de usuario con diseño responsivo"""
@@ -512,54 +508,7 @@ class RequestForm(QWidget):
         form_layout.addWidget(validation_group)
         
         # ----- OPCIONES DE MONITOREO -----
-        monitoring_group = QGroupBox("Opciones de Monitoreo")
-        monitoring_layout = QGridLayout()
-        monitoring_layout.setVerticalSpacing(6)  # Espacio vertical reducido
-        monitoring_group.setLayout(monitoring_layout)
-        
-        # Primera fila: Intervalo y verificación
-        monitoring_layout.addWidget(QLabel("Intervalo (minutos):"), 0, 0)
-        self.monitor_interval = QSpinBox()
-        self.monitor_interval.setMinimum(1)
-        self.monitor_interval.setMaximum(1440)
-        self.monitor_interval.setValue(15)
-        monitoring_layout.addWidget(self.monitor_interval, 0, 1)
-        
-        # Botón de verificación a la derecha
-        verify_task_btn = QPushButton("Verificar Estado")
-        verify_task_btn.clicked.connect(lambda: self._check_task_status(self.name_input.text().strip()))
-        monitoring_layout.addWidget(verify_task_btn, 0, 2, 1, 2)
-        
-        # Segunda fila: Timeout y reintentos
-        monitoring_layout.addWidget(QLabel("Timeout (seg):"), 1, 0)
-        self.request_timeout = QSpinBox()
-        self.request_timeout.setMinimum(5)
-        self.request_timeout.setMaximum(300)
-        self.request_timeout.setValue(30)
-        monitoring_layout.addWidget(self.request_timeout, 1, 1)
-        
-        monitoring_layout.addWidget(QLabel("Reintentos:"), 1, 2)
-        self.max_retries = QSpinBox()
-        self.max_retries.setMinimum(0)
-        self.max_retries.setMaximum(5)
-        self.max_retries.setValue(1)
-        monitoring_layout.addWidget(self.max_retries, 1, 3)
-        
-        # Tercera fila: Checkboxes
-        self.monitor_enabled = QCheckBox("Activar monitoreo automático")
-        self.monitor_enabled.setChecked(True)
-        monitoring_layout.addWidget(self.monitor_enabled, 2, 0, 1, 2)
-        
-        self.add_to_system = QCheckBox("Añadir al programador de tareas del sistema")
-        monitoring_layout.addWidget(self.add_to_system, 2, 2, 1, 2)
-        
-        # Configurar proporciones de columnas para la rejilla
-        monitoring_layout.setColumnStretch(0, 1)
-        monitoring_layout.setColumnStretch(1, 1)
-        monitoring_layout.setColumnStretch(2, 1)
-        monitoring_layout.setColumnStretch(3, 1)
-        
-        form_layout.addWidget(monitoring_group)
+        self._create_enhanced_monitoring_section(form_layout)
         
         # ----- BOTONES DE ACCIÓN -----
         buttons_layout = QHBoxLayout()
@@ -1231,7 +1180,7 @@ class RequestForm(QWidget):
 
     # Modificar el método _save_request para manejar tanto SOAP como REST
     def _save_request(self):
-        """Guarda el request actual"""
+        """Guarda el request actual con configuración avanzada de monitoreo"""
         # Obtener datos del formulario
         name = self.name_input.text().strip()
         description = self.description_input.toPlainText().strip()
@@ -1245,6 +1194,16 @@ class RequestForm(QWidget):
         interval = self.monitor_interval.value()
         if interval <= 0:
             QMessageBox.warning(self, "Información", "El intervalo de monitoreo debe ser mayor a 0 minutos")
+            return
+        
+        # Validar configuración de días
+        selected_days = []
+        for day_key, checkbox in self.days_checkboxes.items():
+            if checkbox.isChecked():
+                selected_days.append(day_key)
+        
+        if not selected_days and self.add_to_system.isChecked():
+            QMessageBox.warning(self, "Información", "Seleccione al menos un día para el monitoreo")
             return
         
         try:
@@ -1263,16 +1222,22 @@ class RequestForm(QWidget):
             request_data = {
                 'name': name,
                 'description': description,
-                'group': self.group_input.currentText(),  # Añadir grupo
+                'group': self.group_input.currentText(),
                 'type': service_type,
                 'validation_pattern': validation_data,
                 'monitor_interval': self.monitor_interval.value(),
                 'monitor_enabled': self.monitor_enabled.isChecked(),
                 'add_to_system': self.add_to_system.isChecked(),
-                'request_timeout': self.request_timeout.value(),  # Nuevo campo
-                'max_retries': self.max_retries.value(),          # Nuevo campo
-                'status': 'active'  # Estado inicial
+                'request_timeout': self.request_timeout.value(),
+                'max_retries': self.max_retries.value(),
+                'status': 'active'
             }
+            
+            # NUEVA: Guardar configuración avanzada de horarios
+            schedule_config = self._get_current_schedule_config()
+            request_data['schedule_config'] = schedule_config
+            
+            logger.info(f"Guardando configuración de horarios: {schedule_config}")
             
             # Datos específicos según tipo de servicio
             if service_type == "SOAP":
@@ -1300,7 +1265,7 @@ class RequestForm(QWidget):
                     QMessageBox.warning(self, "Información", "Especifique la URL del endpoint REST")
                     return
                     
-                # Recopilar headers
+                # Recopilar headers, params y JSON
                 headers = getattr(self, 'headers', {})
                 params = getattr(self, 'params', {})
                 json_data = getattr(self, 'json_data', None)
@@ -1317,26 +1282,83 @@ class RequestForm(QWidget):
             # Guardar request
             self.persistence.save_service_request(request_data)
             
+            # Programación de tareas con configuración avanzada
             if self.monitor_enabled.isChecked():
-                # Programar la tarea si está habilitado el monitoreo
+                # Programar la tarea interna si está habilitado el monitoreo
                 monitor_function = lambda: self.monitoring_panel.check_service(name) if hasattr(self, 'monitoring_panel') else None
                 try:
                     success = self.scheduler.add_monitoring_task(name, interval, monitor_function)
                     if success:
-                        logger.info(f"Tarea de monitoreo programada para {name} cada {interval} minutos")
+                        logger.info(f"Tarea de monitoreo interno programada para {name} cada {interval} minutos")
                     else:
-                        logger.warning(f"No se pudo programar la tarea de monitoreo para {name}")
+                        logger.warning(f"No se pudo programar la tarea interna para {name}")
                 except Exception as e:
-                    logger.error(f"Error al programar tarea: {str(e)}")
+                    logger.error(f"Error al programar tarea interna: {str(e)}")
+            
+            # NUEVA: Crear tarea del sistema con configuración avanzada
             if self.add_to_system.isChecked():
                 try:
-                    # Generar o actualizar la tarea del sistema
-                    if self.scheduler.generate_system_task(name, self.monitor_interval.value()):
-                        logger.info(f"Servicio '{name}' añadido al programador de tareas del sistema")
+                    # Usar el nuevo método con configuración avanzada
+                    success = self.scheduler.generate_system_task_advanced(
+                        name, 
+                        self.monitor_interval.value(),
+                        schedule_config
+                    )
+                    
+                    if success:
+                        logger.info(f"Servicio '{name}' añadido al programador de tareas con configuración avanzada")
+                        logger.info(f"Horario: {schedule_config['start_time']} por {schedule_config['duration_hours']} horas")
+                        logger.info(f"Días: {', '.join(schedule_config['days_of_week'])}")
+                        
+                        # Mostrar confirmación con detalles
+                        config_summary = (
+                            f"Configuración aplicada:\n"
+                            f"• Horario: {schedule_config['start_time']} - "
+                            f"{self._calculate_end_time_str(schedule_config['start_time'], schedule_config['duration_hours'])}\n"
+                            f"• Días: {', '.join([day.capitalize() for day in schedule_config['days_of_week']])}\n"
+                            f"• Tarea oculta: {'Sí' if schedule_config.get('hidden', True) else 'No'}\n"
+                            f"• Ejecutar sin usuario: {'Sí' if schedule_config.get('run_when_logged_off', True) else 'No'}"
+                        )
+                        
+                        QMessageBox.information(self, "Tarea Programada", 
+                            f"Servicio '{name}' guardado y programado correctamente.\n\n{config_summary}")
                     else:
                         logger.warning(f"No se pudo añadir el servicio '{name}' al programador de tareas")
+            
+                        # MEJORA: Ofrecer opciones al usuario
+                        reply = QMessageBox.question(self, "Error de Programación", 
+                            f"El servicio fue guardado pero no se pudo crear la tarea programada.\n\n"
+                            f"Posibles causas:\n"
+                            f"• Falta de permisos de administrador\n"
+                            f"• Conflicto con tareas existentes\n"
+                            f"• Error en la configuración del sistema\n\n"
+                            f"¿Desea exportar los archivos para crear la tarea manualmente?",
+                            QMessageBox.Yes | QMessageBox.No)
+                        
+                        if reply == QMessageBox.Yes:
+                            # Exportar archivos para creación manual
+                            if self.scheduler.export_task_files_advanced(name, self.monitor_interval.value(), schedule_config):
+                                QMessageBox.information(self, "Archivos Exportados", 
+                                    f"Los archivos para crear la tarea manualmente han sido exportados.\n"
+                                    f"Siga las instrucciones en el archivo README.txt incluido.")
                 except Exception as scheduler_error:
-                    logger.error(f"Error al crear tarea programada: {str(scheduler_error)}")
+                    logger.error(f"Error al crear tarea programada: {str(scheduler_error)}", exc_info=True)
+        
+                    # Mensaje de error detallado
+                    error_msg = (
+                        f"El servicio fue guardado pero ocurrió un error al crear la tarea programada:\n\n"
+                        f"Error: {str(scheduler_error)}\n\n"
+                        f"Recomendaciones:\n"
+                        f"• Ejecute la aplicación como administrador\n"
+                        f"• Verifique que el Task Scheduler esté funcionando\n"
+                        f"• Use la opción 'Exportar Config' para crear la tarea manualmente"
+                    )
+                    
+                    QMessageBox.warning(self, "Error de Programación", error_msg)
+            else:
+                # Solo mostrar mensaje de guardado simple si no hay tarea del sistema
+                QMessageBox.information(self, "Información", f"Request '{name}' guardado correctamente")
+            
             # Emitir señal y actualizar lista
             self.request_saved.emit(name)
             self._load_requests_list()
@@ -1348,15 +1370,25 @@ class RequestForm(QWidget):
                     self.requests_list.setCurrentItem(item)
                     break
             
-            QMessageBox.information(self, "Información", f"Request '{name}' guardado correctamente")
             logger.info(f"Request guardado: {name}")
             
         except Exception as e:
             logger.error(f"Error al guardar request: {str(e)}")
             QMessageBox.critical(self, "Error", f"Error al guardar request: {str(e)}")
     
+    def _calculate_end_time_str(self, start_time_str: str, duration_hours: int) -> str:
+        """Calcula y formatea la hora de fin como string"""
+        try:
+            hour, minute = map(int, start_time_str.split(':'))
+            total_minutes = hour * 60 + minute + (duration_hours * 60)
+            end_hour = (total_minutes // 60) % 24
+            end_minute = total_minutes % 60
+            return f"{end_hour:02d}:{end_minute:02d}"
+        except:
+            return "N/A"
+        
     def _on_request_selected(self, current, previous):
-        """Manejador para selección de request en la lista"""
+        """Manejador para selección de request en la lista - Actualizado con configuración avanzada"""
         if current is None:
             return
         
@@ -1369,14 +1401,14 @@ class RequestForm(QWidget):
         self.description_input.setText(request_data.get('description', ''))
         
         # Cargar datos timeout y reintentos
-        request_timeout = request_data.get('request_timeout', 30)  # Default 30 segundos
+        request_timeout = request_data.get('request_timeout', 30)
         self.request_timeout.setValue(request_timeout)
 
-        max_retries = request_data.get('max_retries', 1)  # Default 1 reintento
+        max_retries = request_data.get('max_retries', 1)
         self.max_retries.setValue(max_retries)
 
         # Determinar tipo y seleccionar
-        service_type = request_data.get('type', 'SOAP')  # Por defecto SOAP para compatibilidad
+        service_type = request_data.get('type', 'SOAP')
         type_index = 0 if service_type == 'SOAP' else 1
         self.service_type.setCurrentIndex(type_index)
         
@@ -1419,7 +1451,7 @@ class RequestForm(QWidget):
         else:
             self.validation_pattern_input.setText(str(validation_pattern))
         
-        # Cargar opciones de monitoreo
+        # Cargar opciones de monitoreo básico
         monitor_interval = request_data.get('monitor_interval', 15)
         self.monitor_interval.setValue(monitor_interval)
         
@@ -1429,15 +1461,60 @@ class RequestForm(QWidget):
         add_to_system = request_data.get('add_to_system', False)
         self.add_to_system.setChecked(add_to_system)
         
-        logger.info(f"Request cargado en formulario: {request_data.get('name')}")
+        # NUEVO: Cargar configuración avanzada de horarios
+        schedule_config = request_data.get('schedule_config', {})
         
+        # Hora de inicio
+        start_time_str = schedule_config.get('start_time', '08:00')
+        try:
+            hour, minute = map(int, start_time_str.split(':'))
+            self.start_time.setTime(QTime(hour, minute))
+        except:
+            self.start_time.setTime(QTime(8, 0))
+            logger.warning(f"Error al parsear hora de inicio: {start_time_str}")
+        
+        # Duración
+        duration_hours = schedule_config.get('duration_hours', 11)
+        self.duration_hours.setValue(duration_hours)
+        
+        # Días de la semana
+        active_days = schedule_config.get('days_of_week', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+        for day_key, checkbox in self.days_checkboxes.items():
+            checkbox.setChecked(day_key in active_days)
+        
+        # Opciones avanzadas de sistema
+        self.hidden_task.setChecked(schedule_config.get('hidden', True))
+        self.run_when_logged_off.setChecked(schedule_config.get('run_when_logged_off', True))
+        self.highest_privileges.setChecked(schedule_config.get('highest_privileges', True))
+        
+        # Actualizar display de hora de fin
+        self._update_end_time_display()
+        
+        logger.info(f"Request cargado en formulario: {request_data.get('name')}")
+        logger.debug(f"Configuración de horarios cargada: {schedule_config}")
+        
+        # Verificar estado de tarea del sistema si está marcada
         if self.add_to_system.isChecked():
-            # Verificar si la tarea ya existe en el sistema
             task_exists = self.scheduler.check_system_task_exists(request_data.get('name', ''))
             if not task_exists:
-                # La tarea está marcada para existir pero no existe en el sistema
-                # Puedes decidir si recrearla automáticamente o simplemente informar
                 logger.warning(f"Servicio {request_data.get('name')} marcado para programación del sistema pero la tarea no existe")
+                
+                # Opcional: Mostrar indicador visual de inconsistencia
+                self.add_to_system.setStyleSheet("""
+                    QCheckBox {
+                        color: #cc6600;
+                        font-weight: bold;
+                    }
+                    QCheckBox::indicator:checked {
+                        background-color: #ffeeaa;
+                        border: 2px solid #cc6600;
+                    }
+                """)
+                self.add_to_system.setToolTip("⚠ Marcado para programación pero la tarea no existe en el sistema")
+            else:
+                # Restaurar estilo normal si la tarea existe
+                self.add_to_system.setStyleSheet("")
+                self.add_to_system.setToolTip("Crear tarea programada en el sistema operativo")
     
     def check_service(self, service_name: str):
         """
@@ -1896,21 +1973,46 @@ class RequestForm(QWidget):
             return f"Respuesta recibida (no serializable a JSON):\n{str(response_data)}"
     
     def clear_form(self):
-        """Limpia el formulario"""
+        """Limpia el formulario incluyendo la configuración avanzada"""
         self.current_request = None
         self.name_input.clear()
         self.description_input.clear()
         self.wsdl_url_input.clear()
         self.request_xml_input.clear()
         self.validation_pattern_input.clear()
+        
+        # Resetear configuración básica
         self.monitor_interval.setValue(15)
         self.monitor_enabled.setChecked(True)
         self.add_to_system.setChecked(False)
+        self.request_timeout.setValue(30)
+        self.max_retries.setValue(1)
+        
+        # NUEVO: Resetear configuración avanzada de horarios
+        self.start_time.setTime(QTime(8, 0))  # 08:00
+        self.duration_hours.setValue(11)      # 11 horas
+        
+        # Resetear días (solo laborales por defecto)
+        weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+        for day_key, checkbox in self.days_checkboxes.items():
+            checkbox.setChecked(day_key in weekdays)
+        
+        # Resetear opciones de sistema a valores por defecto
+        self.hidden_task.setChecked(True)
+        self.run_when_logged_off.setChecked(True)
+        self.highest_privileges.setChecked(True)
+        
+        # Actualizar display de hora fin
+        self._update_end_time_display()
+        
+        # Resetear estilo del checkbox add_to_system
+        self.add_to_system.setStyleSheet("")
+        self.add_to_system.setToolTip("Crear tarea programada en el sistema operativo")
         
         # Deseleccionar en la lista
         self.requests_list.clearSelection()
         
-        logger.info("Formulario limpiado")
+        logger.info("Formulario limpiado con configuración por defecto")
     
     def set_request_xml(self, xml_content: str):
         """
@@ -2192,3 +2294,679 @@ class RequestForm(QWidget):
         if success:
             QMessageBox.information(self, "Tarea creada", 
                 f"La tarea programada para '{service_name}' ha sido creada exitosamente en el programador de Windows.")
+            
+    # Fragmento de request_form.py - Sección de Opciones de Monitoreo Mejorada
+
+    def _create_enhanced_monitoring_section(self, form_layout):
+        """
+        Crea la sección mejorada de opciones de monitoreo con configuración de horarios.
+        """
+        # ----- OPCIONES DE MONITOREO AVANZADO -----
+        monitoring_group = QGroupBox("Configuración de Monitoreo Avanzado")
+        # Usar QGridLayout para mejor organización responsiva
+        monitoring_layout = QGridLayout()
+        monitoring_layout.setVerticalSpacing(8)
+        monitoring_layout.setHorizontalSpacing(12)
+        monitoring_group.setLayout(monitoring_layout)
+        
+        # === FILA 1: Configuración Básica ===
+        # Intervalo de monitoreo
+        monitoring_layout.addWidget(QLabel("Intervalo (min):"), 0, 0)
+        self.monitor_interval = QSpinBox()
+        self.monitor_interval.setMinimum(1)
+        self.monitor_interval.setMaximum(1440)
+        self.monitor_interval.setValue(15)
+        self.monitor_interval.setToolTip("Frecuencia de verificación en minutos")
+        monitoring_layout.addWidget(self.monitor_interval, 0, 1)
+        
+        # Timeout de request
+        monitoring_layout.addWidget(QLabel("Timeout (seg):"), 0, 2)
+        self.request_timeout = QSpinBox()
+        self.request_timeout.setMinimum(5)
+        self.request_timeout.setMaximum(300)
+        self.request_timeout.setValue(30)
+        self.request_timeout.setToolTip("Tiempo máximo de espera para respuesta")
+        monitoring_layout.addWidget(self.request_timeout, 0, 3)
+        
+        # Reintentos
+        monitoring_layout.addWidget(QLabel("Reintentos:"), 0, 4)
+        self.max_retries = QSpinBox()
+        self.max_retries.setMinimum(0)
+        self.max_retries.setMaximum(5)
+        self.max_retries.setValue(1)
+        self.max_retries.setToolTip("Número de reintentos en caso de fallo")
+        monitoring_layout.addWidget(self.max_retries, 0, 5)
+        
+        # === FILA 2: Configuración de Horarios ===
+        # Separador visual
+        separator_line = QFrame()
+        separator_line.setFrameShape(QFrame.HLine)
+        separator_line.setFrameShadow(QFrame.Sunken)
+        separator_line.setStyleSheet("color: #cccccc; margin: 5px 0;")
+        monitoring_layout.addWidget(separator_line, 1, 0, 1, 6)
+        
+        # Título de sección
+        schedule_label = QLabel("<b>Configuración de Horarios</b>")
+        schedule_label.setStyleSheet("color: #2d2d2d; margin: 5px 0;")
+        monitoring_layout.addWidget(schedule_label, 2, 0, 1, 6)
+        
+        # Hora de inicio
+        monitoring_layout.addWidget(QLabel("Hora inicio:"), 3, 0)
+        self.start_time = QTimeEdit()
+        self.start_time.setTime(QTime(8, 0))  # 08:00 por defecto
+        self.start_time.setDisplayFormat("HH:mm")
+        self.start_time.setToolTip("Hora de inicio del monitoreo")
+        monitoring_layout.addWidget(self.start_time, 3, 1)
+        
+        # Duración en horas
+        monitoring_layout.addWidget(QLabel("Duración (hrs):"), 3, 2)
+        self.duration_hours = QSpinBox()
+        self.duration_hours.setMinimum(1)
+        self.duration_hours.setMaximum(24)
+        self.duration_hours.setValue(11)  # 11 horas por defecto (8:00 a 19:00)
+        self.duration_hours.setToolTip("Duración del periodo de monitoreo")
+        monitoring_layout.addWidget(self.duration_hours, 3, 3)
+        
+        # Indicador de hora fin (calculado automáticamente)
+        self.end_time_label = QLabel()
+        self.end_time_label.setStyleSheet("color: #666; font-style: italic;")
+        self._update_end_time_display()
+        monitoring_layout.addWidget(self.end_time_label, 3, 4, 1, 2)
+        
+        # Conectar señales para actualizar hora fin automáticamente
+        self.start_time.timeChanged.connect(self._update_end_time_display)
+        self.duration_hours.valueChanged.connect(self._update_end_time_display)
+        
+        # === FILA 3: Días de la Semana ===
+        days_label = QLabel("Días activos:")
+        monitoring_layout.addWidget(days_label, 4, 0)
+        
+        # Crear checkboxes para días de la semana
+        self.days_checkboxes = {}
+        days_widget = QWidget()
+        days_layout = QHBoxLayout(days_widget)
+        days_layout.setContentsMargins(0, 0, 0, 0)
+        days_layout.setSpacing(8)
+        
+        days_config = [
+            ('monday', 'Lun', True),
+            ('tuesday', 'Mar', True), 
+            ('wednesday', 'Mié', True),
+            ('thursday', 'Jue', True),
+            ('friday', 'Vie', True),
+            ('saturday', 'Sáb', False),
+            ('sunday', 'Dom', False)
+        ]
+        
+        for day_key, day_label, default_checked in days_config:
+            checkbox = QCheckBox(day_label)
+            checkbox.setChecked(default_checked)
+            checkbox.setToolTip(f"Monitorear los {day_label}")
+            self.days_checkboxes[day_key] = checkbox
+            days_layout.addWidget(checkbox)
+        
+        # Botones de selección rápida
+        quick_buttons_layout = QHBoxLayout()
+        
+        btn_weekdays = QPushButton("Laborales")
+        btn_weekdays.setMaximumHeight(25)
+        btn_weekdays.setToolTip("Seleccionar solo días laborales")
+        btn_weekdays.clicked.connect(self._select_weekdays_only)
+        quick_buttons_layout.addWidget(btn_weekdays)
+        
+        btn_all_days = QPushButton("Todos")
+        btn_all_days.setMaximumHeight(25)
+        btn_all_days.setToolTip("Seleccionar todos los días")
+        btn_all_days.clicked.connect(self._select_all_days)
+        quick_buttons_layout.addWidget(btn_all_days)
+        
+        btn_none = QPushButton("Ninguno")
+        btn_none.setMaximumHeight(25)
+        btn_none.setToolTip("Deseleccionar todos los días")
+        btn_none.clicked.connect(self._select_no_days)
+        quick_buttons_layout.addWidget(btn_none)
+        
+        quick_buttons_layout.addStretch()
+        days_layout.addLayout(quick_buttons_layout)
+        
+        monitoring_layout.addWidget(days_widget, 4, 1, 1, 5)
+        
+        # === FILA 4: Opciones de Sistema ===
+        # Separador visual
+        separator_line2 = QFrame()
+        separator_line2.setFrameShape(QFrame.HLine)
+        separator_line2.setFrameShadow(QFrame.Sunken)
+        separator_line2.setStyleSheet("color: #cccccc; margin: 5px 0;")
+        monitoring_layout.addWidget(separator_line2, 5, 0, 1, 6)
+        
+        # Checkboxes principales
+        self.monitor_enabled = QCheckBox("Activar monitoreo automático")
+        self.monitor_enabled.setChecked(True)
+        self.monitor_enabled.setToolTip("Habilitar verificación automática del servicio")
+        monitoring_layout.addWidget(self.monitor_enabled, 6, 0, 1, 2)
+        
+        self.add_to_system = QCheckBox("Añadir al programador de tareas")
+        self.add_to_system.setToolTip("Crear tarea programada en el sistema operativo")
+        monitoring_layout.addWidget(self.add_to_system, 6, 2, 1, 2)
+        
+        # Checkbox para tareas ocultas
+        self.hidden_task = QCheckBox("Tarea oculta")
+        self.hidden_task.setChecked(True)  # Por defecto activado
+        self.hidden_task.setToolTip("La tarea se ejecutará de forma oculta")
+        monitoring_layout.addWidget(self.hidden_task, 6, 4, 1, 2)
+        
+        # === FILA 5: Opciones Avanzadas de Sistema ===
+        self.run_when_logged_off = QCheckBox("Ejecutar sin usuario conectado")
+        self.run_when_logged_off.setChecked(True)  # Por defecto activado
+        self.run_when_logged_off.setToolTip("La tarea se ejecutará aunque no haya usuario conectado")
+        monitoring_layout.addWidget(self.run_when_logged_off, 7, 0, 1, 3)
+        
+        self.highest_privileges = QCheckBox("Máximos privilegios")
+        self.highest_privileges.setChecked(True)  # Por defecto activado
+        self.highest_privileges.setToolTip("Ejecutar con los máximos privilegios disponibles")
+        monitoring_layout.addWidget(self.highest_privileges, 7, 3, 1, 3)
+        
+        # === FILA 6: Botones de Acción ===
+        # Separador visual
+        separator_line3 = QFrame()
+        separator_line3.setFrameShape(QFrame.HLine)
+        separator_line3.setFrameShadow(QFrame.Sunken)
+        separator_line3.setStyleSheet("color: #cccccc; margin: 5px 0;")
+        monitoring_layout.addWidget(separator_line3, 8, 0, 1, 6)
+        
+        # Contenedor para botones de acción
+        actions_widget = QWidget()
+        actions_layout = QHBoxLayout(actions_widget)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(8)
+        
+        # Botón verificar estado
+        self.btn_verify_task = QPushButton("Verificar Estado")
+        self.btn_verify_task.setIcon(QIcon.fromTheme("dialog-information", QIcon()))
+        self.btn_verify_task.setToolTip("Verificar el estado de la tarea programada")
+        self.btn_verify_task.clicked.connect(self._verify_task_status)
+        actions_layout.addWidget(self.btn_verify_task)
+        
+        # Botón exportar configuración
+        self.btn_export_config = QPushButton("Exportar Config")
+        self.btn_export_config.setIcon(QIcon.fromTheme("document-save", QIcon()))
+        self.btn_export_config.setToolTip("Exportar archivos de configuración de tarea")
+        self.btn_export_config.clicked.connect(self._export_task_config)
+        actions_layout.addWidget(self.btn_export_config)
+        
+        # Botón preview horario
+        self.btn_preview_schedule = QPushButton("Vista Previa")
+        self.btn_preview_schedule.setIcon(QIcon.fromTheme("view-calendar", QIcon()))
+        self.btn_preview_schedule.setToolTip("Ver vista previa del horario de ejecución")
+        self.btn_preview_schedule.clicked.connect(self._preview_schedule)
+        actions_layout.addWidget(self.btn_preview_schedule)
+        
+        actions_layout.addStretch()
+        
+        # Indicador de estado de permisos
+        self.admin_status_label = QLabel()
+        self._update_admin_status_display()
+        actions_layout.addWidget(self.admin_status_label)
+        
+        monitoring_layout.addWidget(actions_widget, 9, 0, 1, 6)
+        
+        # Configurar proporciones de columnas para responsividad
+        monitoring_layout.setColumnStretch(0, 1)  # Etiquetas
+        monitoring_layout.setColumnStretch(1, 1)  # Campos pequeños
+        monitoring_layout.setColumnStretch(2, 1)  # Etiquetas
+        monitoring_layout.setColumnStretch(3, 1)  # Campos pequeños
+        monitoring_layout.setColumnStretch(4, 1)  # Etiquetas
+        monitoring_layout.setColumnStretch(5, 2)  # Campos expandibles
+        
+        form_layout.addWidget(monitoring_group)
+
+    def _update_end_time_display(self):
+        """Actualiza la visualización de la hora de fin calculada"""
+        try:
+            start_time = self.start_time.time()
+            duration = self.duration_hours.value()
+            
+            # Calcular hora de fin
+            start_minutes = start_time.hour() * 60 + start_time.minute()
+            end_minutes = start_minutes + (duration * 60)
+            
+            # Manejar overflow de 24 horas
+            if end_minutes >= 1440:  # 24 * 60
+                end_minutes = end_minutes % 1440
+                self.end_time_label.setText(f"Fin: {end_minutes//60:02d}:{end_minutes%60:02d} (+1 día)")
+                self.end_time_label.setStyleSheet("color: #cc6600; font-style: italic;")
+            else:
+                self.end_time_label.setText(f"Fin: {end_minutes//60:02d}:{end_minutes%60:02d}")
+                self.end_time_label.setStyleSheet("color: #666; font-style: italic;")
+        except Exception as e:
+            self.end_time_label.setText("Fin: --:--")
+            logger.warning(f"Error calculando hora fin: {str(e)}")
+
+    def _select_weekdays_only(self):
+        """Selecciona solo días laborales (Lun-Vie)"""
+        weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+        for day_key, checkbox in self.days_checkboxes.items():
+            checkbox.setChecked(day_key in weekdays)
+
+    def _select_all_days(self):
+        """Selecciona todos los días de la semana"""
+        for checkbox in self.days_checkboxes.values():
+            checkbox.setChecked(True)
+
+    def _select_no_days(self):
+        """Deselecciona todos los días"""
+        for checkbox in self.days_checkboxes.values():
+            checkbox.setChecked(False)
+
+    def _update_admin_status_display(self):
+        """Actualiza el indicador de estado de administrador"""
+        try:
+            import ctypes
+            is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0 if sys.platform.startswith('win') else os.geteuid() == 0
+            
+            if is_admin:
+                self.admin_status_label.setText("✓ Admin")
+                self.admin_status_label.setStyleSheet("color: green; font-weight: bold; font-size: 10px;")
+                self.admin_status_label.setToolTip("Ejecutando con permisos de administrador")
+            else:
+                self.admin_status_label.setText("⚠ Sin Admin")
+                self.admin_status_label.setStyleSheet("color: #cc6600; font-weight: bold; font-size: 10px;")
+                self.admin_status_label.setToolTip("Ejecutando sin permisos de administrador")
+        except Exception as e:
+            self.admin_status_label.setText("? Estado")
+            self.admin_status_label.setStyleSheet("color: #666; font-size: 10px;")
+
+    def _verify_task_status(self):
+        """Verifica y muestra el estado detallado de la tarea programada"""
+        service_name = self.name_input.text().strip()
+        if not service_name:
+            QMessageBox.warning(self, "Advertencia", "Especifique un nombre para el servicio")
+            return
+        
+        try:
+            status = self.scheduler.get_task_status(service_name)
+            
+            # Crear diálogo de estado detallado
+            dialog = QDialog(self)
+            self._style_dialog(dialog, f"Estado de Tarea: {service_name}", 500, 400)
+            
+            layout = QVBoxLayout()
+            dialog.setLayout(layout)
+            
+            # Información de estado
+            status_text = QTextBrowser()
+            status_html = self._generate_task_status_html(service_name, status)
+            status_text.setHtml(status_html)
+            layout.addWidget(status_text)
+            
+            # Botones
+            buttons_layout = QHBoxLayout()
+            
+            refresh_btn = QPushButton("Actualizar")
+            refresh_btn.clicked.connect(lambda: self._refresh_task_status(status_text, service_name))
+            buttons_layout.addWidget(refresh_btn)
+            
+            buttons_layout.addStretch()
+            
+            close_btn = QPushButton("Cerrar")
+            close_btn.clicked.connect(dialog.accept)
+            buttons_layout.addWidget(close_btn)
+            
+            layout.addLayout(buttons_layout)
+            dialog.exec_()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al verificar estado: {str(e)}")
+
+    def _generate_task_status_html(self, service_name: str, status: Dict[str, Any]) -> str:
+        """Genera HTML con el estado detallado de la tarea"""
+        html = f"""
+        <h3>Estado de Tarea: {service_name}</h3>
+        <table style="width: 100%; border-collapse: collapse;">
+        """
+        
+        # Estado principal
+        exists = status.get("exists", False)
+        html += f"""
+        <tr>
+            <td style="padding: 5px; font-weight: bold;">Estado en Sistema:</td>
+            <td style="padding: 5px; color: {'green' if exists else 'red'};">
+                {'✓ Existe' if exists else '✗ No existe'}
+            </td>
+        </tr>
+        """
+        
+        # Detalles específicos por plataforma
+        if sys.platform.startswith('win'):
+            schedule_type = status.get("schedule_type", "N/A")
+            interval = status.get("interval", "N/A")
+            html += f"""
+            <tr><td style="padding: 5px; font-weight: bold;">Tipo de Programación:</td><td style="padding: 5px;">{schedule_type}</td></tr>
+            <tr><td style="padding: 5px; font-weight: bold;">Intervalo:</td><td style="padding: 5px;">{interval}</td></tr>
+            """
+        else:
+            cron_schedule = status.get("cron_schedule", "N/A")
+            html += f"""
+            <tr><td style="padding: 5px; font-weight: bold;">Programación Cron:</td><td style="padding: 5px;">{cron_schedule}</td></tr>
+            """
+        
+        # Estado interno
+        exists_internal = status.get("exists_internal", False)
+        html += f"""
+        <tr>
+            <td style="padding: 5px; font-weight: bold;">Estado Interno:</td>
+            <td style="padding: 5px; color: {'green' if exists_internal else 'orange'};">
+                {'✓ Programado' if exists_internal else '⚠ No programado'}
+            </td>
+        </tr>
+        """
+        
+        html += "</table>"
+        return html
+
+    def _refresh_task_status(self, text_widget, service_name: str):
+        """Actualiza el estado de la tarea en el diálogo"""
+        try:
+            status = self.scheduler.get_task_status(service_name)
+            status_html = self._generate_task_status_html(service_name, status)
+            text_widget.setHtml(status_html)
+        except Exception as e:
+            text_widget.setHtml(f"<p style='color: red;'>Error al actualizar estado: {str(e)}</p>")
+
+    def _export_task_config(self):
+        """Exporta la configuración de tarea para creación manual"""
+        service_name = self.name_input.text().strip()
+        if not service_name:
+            QMessageBox.warning(self, "Advertencia", "Especifique un nombre para el servicio")
+            return
+        
+        try:
+            # Recopilar configuración actual
+            config = self._get_current_schedule_config()
+            interval = self.monitor_interval.value()
+            
+            # Usar método del scheduler para exportar
+            success = self.scheduler.export_task_files_advanced(service_name, interval, config)
+            
+            if success:
+                QMessageBox.information(self, "Exportación Completada", 
+                    f"Archivos de configuración exportados para '{service_name}'.\n\n"
+                    f"Configuración incluye:\n"
+                    f"• Horario: {config['start_time']} por {config['duration_hours']} horas\n"
+                    f"• Días: {', '.join(config['days_of_week'])}\n"
+                    f"• Tarea oculta: {'Sí' if config['hidden'] else 'No'}")
+            else:
+                QMessageBox.warning(self, "Error", "No se pudieron exportar los archivos de configuración")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al exportar configuración: {str(e)}")
+
+    def export_task_files_advanced(self, service_name: str, interval_minutes: int, 
+                                  schedule_config: Dict[str, Any]) -> bool:
+        """
+        Exporta archivos de tarea con configuración avanzada para creación manual.
+        
+        Args:
+            service_name (str): Nombre del servicio
+            interval_minutes (int): Intervalo en minutos
+            schedule_config (Dict[str, Any]): Configuración avanzada de horarios
+            
+        Returns:
+            bool: True si se exportó correctamente
+        """
+        try:
+            # Obtener ruta para guardar
+            from PyQt5.QtWidgets import QFileDialog
+            export_dir = QFileDialog.getExistingDirectory(
+                None, 
+                "Seleccionar carpeta para exportar archivos de tarea", 
+                os.path.expanduser("~"),
+                QFileDialog.ShowDirsOnly
+            )
+            
+            if not export_dir:
+                return False
+                
+            # Crear carpeta específica para este servicio
+            service_dir = os.path.join(export_dir, f"SOAPMonitor_{service_name}_Advanced")
+            os.makedirs(service_dir, exist_ok=True)
+            
+            # Obtener rutas
+            python_path = sys.executable
+            script_path = self.get_monitor_script_path()
+            app_dir = self.scheduler.SOAPMonitorScheduler.get_application_path()
+            data_dir = os.path.join(app_dir, 'data')
+            logs_dir = os.path.join(app_dir, 'logs')
+            
+            if sys.platform.startswith('win'):
+                # Generar XML avanzado
+                xml_content = self._generate_advanced_task_xml(
+                    service_name, interval_minutes, schedule_config,
+                    python_path, script_path, data_dir, logs_dir, app_dir
+                )
+                xml_path = os.path.join(service_dir, f"{service_name}_advanced_task.xml")
+                
+                with open(xml_path, 'w', encoding='utf-16') as f:
+                    f.write(xml_content)
+                    
+                # Generar script batch mejorado
+                batch_content = self._generate_advanced_batch_script(
+                    service_name, xml_path, schedule_config
+                )
+                batch_path = os.path.join(service_dir, f"Registrar_Tarea_Avanzada_{service_name}.bat")
+                
+                with open(batch_path, 'w', encoding='utf-8') as f:
+                    f.write(batch_content)
+            else:
+                # Para Unix/Linux, generar script y entrada cron
+                script_content = self._generate_unix_advanced_script(
+                    service_name, app_dir, python_path, script_path,
+                    data_dir, logs_dir, schedule_config
+                )
+                script_path = os.path.join(service_dir, f"monitor_{service_name}_advanced.sh")
+                
+                with open(script_path, 'w') as f:
+                    f.write(script_content)
+                os.chmod(script_path, 0o755)
+                
+                # Generar entrada crontab
+                cron_entry = self._generate_cron_schedule(interval_minutes, schedule_config)
+                cron_file = os.path.join(service_dir, "crontab_entry.txt")
+                
+                with open(cron_file, 'w') as f:
+                    f.write(f"# Entrada para crontab - Servicio: {service_name}\n")
+                    f.write(f"# Configuración: {schedule_config}\n")
+                    f.write(f"{cron_entry}\n")
+                    
+            # Generar archivo de información detallada
+            info = {
+                "service_name": service_name,
+                "interval_minutes": interval_minutes,
+                "schedule_config": schedule_config,
+                "python_path": python_path,
+                "script_path": script_path,
+                "exported_at": datetime.now().isoformat(),
+                "platform": sys.platform,
+                "instructions": "Para registrar esta tarea, siga las instrucciones en el archivo README.txt incluido."
+            }
+            
+            info_path = os.path.join(service_dir, "config_info.json")
+            with open(info_path, 'w', encoding='utf-8') as f:
+                json.dump(info, f, indent=2, ensure_ascii=False)
+                
+            # Crear archivo README mejorado
+            readme_content = self._generate_advanced_readme(
+                service_name, interval_minutes, schedule_config, sys.platform.startswith('win')
+            )
+            
+            readme_path = os.path.join(service_dir, "README.txt")
+            with open(readme_path, 'w', encoding='utf-8') as f:
+                f.write(readme_content)
+                
+            logger.info(f"Archivos avanzados exportados para {service_name} en: {service_dir}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error al exportar archivos avanzados: {str(e)}")
+            return False
+            
+    def _preview_schedule(self):
+        """Muestra una vista previa del horario de ejecución"""
+        try:
+            config = self._get_current_schedule_config()
+            interval = self.monitor_interval.value()
+            
+            # Crear diálogo de vista previa
+            dialog = QDialog(self)
+            self._style_dialog(dialog, "Vista Previa del Horario", 600, 500)
+            
+            layout = QVBoxLayout()
+            dialog.setLayout(layout)
+            
+            # Generar vista previa
+            preview_html = self._generate_schedule_preview_html(config, interval)
+            
+            preview_text = QTextBrowser()
+            preview_text.setHtml(preview_html)
+            layout.addWidget(preview_text)
+            
+            # Botón cerrar
+            close_btn = QPushButton("Cerrar")
+            close_btn.clicked.connect(dialog.accept)
+            
+            btn_layout = QHBoxLayout()
+            btn_layout.addStretch()
+            btn_layout.addWidget(close_btn)
+            layout.addLayout(btn_layout)
+            
+            dialog.exec_()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al generar vista previa: {str(e)}")
+
+    def _generate_schedule_preview_html(self, config: Dict[str, Any], interval: int) -> str:
+        """Genera HTML con la vista previa del horario"""
+        start_time = config['start_time']
+        duration = config['duration_hours']
+        days = config['days_of_week']
+        
+        # Calcular hora de fin
+        start_hour, start_min = map(int, start_time.split(':'))
+        total_minutes = start_hour * 60 + start_min + (duration * 60)
+        end_hour = (total_minutes // 60) % 24
+        end_min = total_minutes % 60
+        
+        # Mapeo de días
+        day_names = {
+            'monday': 'Lunes', 'tuesday': 'Martes', 'wednesday': 'Miércoles',
+            'thursday': 'Jueves', 'friday': 'Viernes', 'saturday': 'Sábado', 'sunday': 'Domingo'
+        }
+        
+        html = f"""
+        <h3>Vista Previa del Horario de Monitoreo</h3>
+        
+        <h4>Configuración General:</h4>
+        <ul>
+            <li><b>Intervalo de verificación:</b> Cada {interval} minutos</li>
+            <li><b>Horario activo:</b> {start_time} - {end_hour:02d}:{end_min:02d}</li>
+            <li><b>Duración:</b> {duration} horas</li>
+            <li><b>Días activos:</b> {', '.join([day_names.get(day, day) for day in days])}</li>
+        </ul>
+        
+        <h4>Próximas Ejecuciones (Ejemplo):</h4>
+        <table style="width: 100%; border-collapse: collapse; border: 1px solid #ddd;">
+            <tr style="background-color: #f5f5f5;">
+                <th style="padding: 8px; border: 1px solid #ddd;">Día</th>
+                <th style="padding: 8px; border: 1px solid #ddd;">Primera Ejecución</th>
+                <th style="padding: 8px; border: 1px solid #ddd;">Última Ejecución</th>
+                <th style="padding: 8px; border: 1px solid #ddd;">Total Verificaciones</th>
+            </tr>
+        """
+        
+        # Calcular ejecuciones por día
+        total_minutes_per_day = duration * 60
+        executions_per_day = (total_minutes_per_day // interval) + 1
+        
+        for day in days:
+            day_name = day_names.get(day, day)
+            last_execution_minutes = start_hour * 60 + start_min + ((executions_per_day - 1) * interval)
+            last_hour = (last_execution_minutes // 60) % 24
+            last_min = last_execution_minutes % 60
+            
+            html += f"""
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ddd;">{day_name}</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">{start_time}</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">{last_hour:02d}:{last_min:02d}</td>
+                <td style="padding: 8px; border: 1px solid #ddd;">{executions_per_day}</td>
+            </tr>
+            """
+        
+        html += """
+            </table>
+            
+            <h4>Configuraciones de Sistema:</h4>
+            <ul>
+        """
+        
+        html += f"<li><b>Tarea oculta:</b> {'Sí' if config.get('hidden', True) else 'No'}</li>"
+        html += f"<li><b>Ejecutar sin usuario:</b> {'Sí' if config.get('run_when_logged_off', True) else 'No'}</li>"
+        html += f"<li><b>Máximos privilegios:</b> {'Sí' if config.get('highest_privileges', True) else 'No'}</li>"
+        
+        html += "</ul>"
+        
+        return html
+
+    def _get_current_schedule_config(self) -> Dict[str, Any]:
+        """Obtiene la configuración actual de horarios del formulario"""
+        # Obtener días seleccionados
+        selected_days = []
+        for day_key, checkbox in self.days_checkboxes.items():
+            if checkbox.isChecked():
+                selected_days.append(day_key)
+        
+        # Obtener hora de inicio
+        start_time = self.start_time.time()
+        start_time_str = f"{start_time.hour():02d}:{start_time.minute():02d}"
+        
+        return {
+            'days_of_week': selected_days,
+            'start_time': start_time_str,
+            'duration_hours': self.duration_hours.value(),
+            'hidden': self.hidden_task.isChecked(),
+            'run_when_logged_off': self.run_when_logged_off.isChecked(),
+            'highest_privileges': self.highest_privileges.isChecked()
+        }
+
+    # Métodos para cargar/guardar la nueva configuración
+
+    def _load_advanced_monitoring_config(self, request_data: Dict[str, Any]):
+        """Carga la configuración avanzada de monitoreo desde los datos del request"""
+        # Configuración de horarios
+        schedule_config = request_data.get('schedule_config', {})
+        
+        # Hora de inicio
+        start_time_str = schedule_config.get('start_time', '08:00')
+        try:
+            hour, minute = map(int, start_time_str.split(':'))
+            self.start_time.setTime(QTime(hour, minute))
+        except:
+            self.start_time.setTime(QTime(8, 0))
+        
+        # Duración
+        self.duration_hours.setValue(schedule_config.get('duration_hours', 11))
+        
+        # Días de la semana
+        active_days = schedule_config.get('days_of_week', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+        for day_key, checkbox in self.days_checkboxes.items():
+            checkbox.setChecked(day_key in active_days)
+        
+        # Opciones de sistema
+        self.hidden_task.setChecked(schedule_config.get('hidden', True))
+        self.run_when_logged_off.setChecked(schedule_config.get('run_when_logged_off', True))
+        self.highest_privileges.setChecked(schedule_config.get('highest_privileges', True))
+
+    def _save_advanced_monitoring_config(self, request_data: Dict[str, Any]):
+        """Guarda la configuración avanzada de monitoreo en los datos del request"""
+        schedule_config = self._get_current_schedule_config()
+        request_data['schedule_config'] = schedule_config
