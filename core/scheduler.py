@@ -244,7 +244,7 @@ class SOAPMonitorScheduler:
                 # Último recurso: devolver un nombre de archivo básico y esperar que esté en el PATH
                 return "monitor.py"
     
-    def generate_system_task(self, task_name: str, interval_minutes: int) -> bool:
+    def generate_system_task(self, service_name: str, interval_minutes: int) -> bool:
         """
         Enhanced version of generate_system_task with folder organization.
         
@@ -255,8 +255,35 @@ class SOAPMonitorScheduler:
         Returns:
             bool: True if task was created successfully
         """
-        if not task_name or interval_minutes <= 0:
-            logger.error(f"Invalid parameters for task: {task_name}, interval: {interval_minutes}")
+        # Cargar datos del servicio para obtener la configuración completa
+        try:
+            from core.persistence import PersistenceManager
+            persistence = PersistenceManager(base_path=self.application_path)
+            service_data = persistence.load_soap_request(service_name)
+            
+            # Obtener configuración de horario
+            start_time = service_data.get('schedule_start_time', '08:00')
+            active_days = service_data.get('schedule_active_days', [Qt.Monday, Qt.Tuesday, Qt.Wednesday, Qt.Thursday, Qt.Friday])
+            hidden_task = service_data.get('schedule_hidden', True)
+            highest_privileges = service_data.get('schedule_highest_privileges', True)
+            
+            # Convertir días a formato compatible con schtasks
+            days_str = ""
+            if len(active_days) > 0:
+                day_map = {
+                    Qt.Monday: "MON", Qt.Tuesday: "TUE", Qt.Wednesday: "WED",
+                    Qt.Thursday: "THU", Qt.Friday: "FRI", Qt.Saturday: "SAT", Qt.Sunday: "SUN"
+                }
+                days_str = ",".join([day_map.get(day, "") for day in active_days if day in day_map])
+        except:
+            # Valores por defecto si no se puede cargar la configuración
+            start_time = "08:00"
+            days_str = "MON,TUE,WED,THU,FRI"
+            hidden_task = True
+            highest_privileges = True
+            
+        if not service_name or interval_minutes <= 0:
+            logger.error(f"Invalid parameters for task: {service_name}, interval: {interval_minutes}")
             return False
         
         # Get application directory
@@ -285,11 +312,11 @@ class SOAPMonitorScheduler:
                 # 1. Create temporary batch directory
                 batch_dir = os.path.join(os.environ['TEMP'], 'SOAPMonitor')
                 os.makedirs(batch_dir, exist_ok=True)
-                batch_file = os.path.join(batch_dir, f'run_{task_name}.bat')
+                batch_file = os.path.join(batch_dir, f'run_{service_name}.bat')
                 
                 # 2. Write improved batch script
                 batch_content = self.generate_batch_script_improved(
-                    task_name, app_dir, python_cmd, monitor_script, data_dir, logs_dir
+                    service_name, app_dir, python_cmd, monitor_script, data_dir, logs_dir
                 )
                 
                 with open(batch_file, 'w') as f:
@@ -308,20 +335,32 @@ class SOAPMonitorScheduler:
                     logger.warning("Could not create SoapRestMonitor folder - it may already exist")
                 
                 # 4. Create the task using the batch file with full folder path
-                task_cmd = f'schtasks /create /tn "\\SoapRestMonitor\\{task_name}" /tr "{batch_file}" /sc minute /mo {interval_minutes} /f'
+                if days_str:
+                    # Usar programación semanal con días específicos
+                    task_cmd = f'schtasks /create /tn "\\SoapRestMonitor\\{service_name}" /tr "{batch_file}" /sc weekly /d {days_str} /st {start_time} /ru "SYSTEM"'
+                    
+                    # Añadir opciones adicionales
+                    if hidden_task:
+                        task_cmd += " /f /it"
+                    if highest_privileges:
+                        task_cmd += " /rl highest"
+                else:
+                    # Si no hay días seleccionados, usar el comportamiento original (por minutos)
+                    task_cmd = f'schtasks /create /tn "\\SoapRestMonitor\\{service_name}" /tr "{batch_file}" /sc minute /mo {interval_minutes} /f'
+                
                 subprocess.run(task_cmd, shell=True, check=True)
-                logger.info(f"System task created in Windows for {task_name} in SoapRestMonitor folder using script: {batch_file}")
+                logger.info(f"System task created in Windows for {service_name} in SoapRestMonitor folder using script: {batch_file}")
                 
                 return True
             else:
                 # Linux/Unix - use crontab with improved script
                 script_dir = os.path.join(app_dir, 'scripts')
                 os.makedirs(script_dir, exist_ok=True)
-                script_file = os.path.join(script_dir, f'monitor_{task_name}.sh')
+                script_file = os.path.join(script_dir, f'monitor_{service_name}.sh')
                 
                 # Create the shell script
                 script_content = self.generate_shell_script_improved(
-                    task_name, app_dir, python_cmd, monitor_script, data_dir, logs_dir
+                    service_name, app_dir, python_cmd, monitor_script, data_dir, logs_dir
                 )
                 
                 with open(script_file, 'w') as f:
@@ -337,7 +376,7 @@ class SOAPMonitorScheduler:
                 current_crontab = subprocess.check_output("crontab -l 2>/dev/null || echo ''", shell=True, text=True)
                 
                 # Find and replace task or add new
-                task_marker = f"# SOAPMonitor_{task_name}"
+                task_marker = f"# SOAPMonitor_{service_name}"
                 
                 if task_marker in current_crontab:
                     # Update existing task
@@ -361,12 +400,12 @@ class SOAPMonitorScheduler:
                 
                 # Save new crontab
                 subprocess.run("crontab -", shell=True, input=new_crontab, text=True, check=True)
-                logger.info(f"System task created in Linux/Unix for {task_name} using script: {script_file}")
+                logger.info(f"System task created in Linux/Unix for {service_name} using script: {script_file}")
             
             return True
             
         except subprocess.CalledProcessError as e:
-            logger.error(f"Error creating system task for {task_name}: {str(e)}")
+            logger.error(f"Error creating system task for {service_name}: {str(e)}")
             return False
         except Exception as e:
             logger.error(f"Unexpected error creating system task: {str(e)}")
@@ -611,6 +650,7 @@ class SOAPMonitorScheduler:
     REM SOAP/REST Monitor - Scheduled task for service {service_name}
     REM Generated by SOAP/REST Monitor Application
     REM Execution mode: {script_description}
+    REM Hidden: true, Run whether user is logged on or not
 
     echo ============================================
     echo SOAP/REST Monitor - Task Execution

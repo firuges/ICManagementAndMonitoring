@@ -11,9 +11,9 @@ from PyQt5.QtWidgets import (
     QMessageBox, QSplitter, QListWidget, QListWidgetItem, QTabWidget,
     QTableWidgetItem, QHeaderView,QFileDialog, QDialog, QApplication,
     QStackedWidget, QTableWidget, QTextBrowser,QMenu, QDialogButtonBox, QGridLayout,
-    QFrame,QScrollArea, QSizePolicy
+    QFrame,QScrollArea, QSizePolicy, QTimeEdit
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QRegExp
+from PyQt5.QtCore import Qt, pyqtSignal, QRegExp,QTime
 from PyQt5.QtGui import QRegExpValidator, QFont, QIcon
 
 # Importar módulos de la aplicación
@@ -561,6 +561,76 @@ class RequestForm(QWidget):
         
         form_layout.addWidget(monitoring_group)
         
+        # ----- CONDIFURATION DEL PROGRAMADOR -----#
+        schedule_group = QGroupBox("Configuración de Horarios")
+        schedule_layout = QGridLayout()
+        schedule_group.setLayout(schedule_layout)
+
+        # Hora de inicio
+        schedule_layout.addWidget(QLabel("Hora inicio:"), 0, 0)
+        self.schedule_start_time = QTimeEdit()
+        self.schedule_start_time.setDisplayFormat("hh:mm")
+        self.schedule_start_time.setTime(QTime(8, 0))  # 8:00 AM por defecto
+        schedule_layout.addWidget(self.schedule_start_time, 0, 1)
+
+        # Duración en horas
+        schedule_layout.addWidget(QLabel("Duración (hrs):"), 0, 2)
+        self.schedule_duration = QSpinBox()
+        self.schedule_duration.setRange(1, 24)
+        self.schedule_duration.setValue(11)  # 11 horas por defecto (8:00 a 19:00)
+        schedule_layout.addWidget(self.schedule_duration, 0, 3)
+
+        # Fin de horario (solo informativo)
+        end_time = QTime(19, 0)  # 19:00 (8:00 + 11 horas)
+        schedule_layout.addWidget(QLabel(f"Fin: {end_time.toString('hh:mm')}"), 0, 4)
+
+        # Días activos
+        schedule_layout.addWidget(QLabel("Días activos:"), 1, 0)
+        days_layout = QHBoxLayout()
+
+        # Crear checkboxes para cada día
+        self.days_checkboxes = {}
+        days = [("Lun", Qt.Monday), ("Mar", Qt.Tuesday), ("Mié", Qt.Wednesday), 
+                ("Jue", Qt.Thursday), ("Vie", Qt.Friday), ("Sáb", Qt.Saturday), ("Dom", Qt.Sunday)]
+
+        for day_name, day_constant in days:
+            checkbox = QCheckBox(day_name)
+            # Marcar L-V por defecto
+            if day_constant < Qt.Saturday:
+                checkbox.setChecked(True)
+            self.days_checkboxes[day_constant] = checkbox
+            days_layout.addWidget(checkbox)
+
+        # Añadir botones de selección rápida
+        btn_workdays = QPushButton("Laborales")
+        btn_workdays.clicked.connect(self._select_workdays)
+        days_layout.addWidget(btn_workdays)
+
+        btn_all_days = QPushButton("Todos")
+        btn_all_days.clicked.connect(self._select_all_days)
+        days_layout.addWidget(btn_all_days)
+
+        btn_no_days = QPushButton("Ninguno")
+        btn_no_days.clicked.connect(self._select_no_days)
+        days_layout.addWidget(btn_no_days)
+
+        schedule_layout.addLayout(days_layout, 1, 1, 1, 4)
+
+        # Opciones adicionales
+        options_layout = QHBoxLayout()
+        self.schedule_hidden = QCheckBox("Tarea oculta")
+        self.schedule_hidden.setChecked(True)  # Oculta por defecto
+        options_layout.addWidget(self.schedule_hidden)
+
+        self.run_with_highest_privileges = QCheckBox("Máximos privilegios")
+        self.run_with_highest_privileges.setChecked(True)  # Privilegios máximos por defecto
+        options_layout.addWidget(self.run_with_highest_privileges)
+
+        schedule_layout.addLayout(options_layout, 2, 1, 1, 4)
+
+        # Añadir al layout principal
+        form_layout.addWidget(schedule_group)
+
         # ----- BOTONES DE ACCIÓN -----
         buttons_layout = QHBoxLayout()
         buttons_layout.addStretch()
@@ -598,6 +668,22 @@ class RequestForm(QWidget):
         # Añadir método de ajuste para eventos de redimensión
         self.resizeEvent = self._on_resize_event
     
+    # Métodos auxiliares para selección rápida de días
+    def _select_workdays(self):
+        """Selecciona solo días laborales (L-V)"""
+        for day, checkbox in self.days_checkboxes.items():
+            checkbox.setChecked(day < Qt.Saturday)
+
+    def _select_all_days(self):
+        """Selecciona todos los días"""
+        for checkbox in self.days_checkboxes.values():
+            checkbox.setChecked(True)
+
+    def _select_no_days(self):
+        """Deselecciona todos los días"""
+        for checkbox in self.days_checkboxes.values():
+            checkbox.setChecked(False)
+            
     def _show_validation_help(self):
         """Muestra ayuda sobre los patrones de validación en un diálogo modal"""
         help_dialog = QDialog(self)
@@ -1236,7 +1322,21 @@ class RequestForm(QWidget):
         name = self.name_input.text().strip()
         description = self.description_input.toPlainText().strip()
         service_type = self.service_type.currentText()  # "SOAP" o "REST"
-        
+        start_time = self.schedule_start_time.time().toString("hh:mm")
+        duration_hours = self.schedule_duration.value()
+        end_hour = (self.schedule_start_time.time().hour() + duration_hours) % 24
+        end_minute = self.schedule_start_time.time().minute()
+        end_time = f"{end_hour:02d}:{end_minute:02d}"
+
+        active_days = []
+        for day, checkbox in self.days_checkboxes.items():
+            if checkbox.isChecked():
+                active_days.append(day)
+
+        # Opciones adicionales
+        hidden_task = self.schedule_hidden.isChecked()
+        highest_privileges = self.run_with_highest_privileges.isChecked()
+
         # Validar datos mínimos
         if not name:
             QMessageBox.warning(self, "Información", "Ingrese un nombre para el request")
@@ -1290,7 +1390,13 @@ class RequestForm(QWidget):
                 # Añadir datos específicos de SOAP
                 request_data.update({
                     'wsdl_url': wsdl_url,
-                    'request_xml': request_xml
+                    'request_xml': request_xml,
+                    'schedule_start_time': start_time,
+                    'schedule_duration': duration_hours,
+                    'schedule_end_time': end_time,
+                    'schedule_active_days': active_days,
+                    'schedule_hidden': hidden_task,
+                    'schedule_highest_privileges': highest_privileges
                 })
             else:  # REST
                 rest_url = self.rest_url_input.text().strip()
@@ -1429,6 +1535,22 @@ class RequestForm(QWidget):
         add_to_system = request_data.get('add_to_system', False)
         self.add_to_system.setChecked(add_to_system)
         
+        start_time = request_data.get('schedule_start_time', '08:00')
+        hours, minutes = map(int, start_time.split(':'))
+        self.schedule_start_time.setTime(QTime(hours, minutes))
+
+        duration = request_data.get('schedule_duration', 11)
+        self.schedule_duration.setValue(duration)
+
+        # Cargar días activos
+        active_days = request_data.get('schedule_active_days', [Qt.Monday, Qt.Tuesday, Qt.Wednesday, Qt.Thursday, Qt.Friday])
+        for day, checkbox in self.days_checkboxes.items():
+            checkbox.setChecked(day in active_days)
+
+        # Opciones adicionales
+        self.schedule_hidden.setChecked(request_data.get('schedule_hidden', True))
+        self.run_with_highest_privileges.setChecked(request_data.get('schedule_highest_privileges', True))
+
         logger.info(f"Request cargado en formulario: {request_data.get('name')}")
         
         if self.add_to_system.isChecked():
